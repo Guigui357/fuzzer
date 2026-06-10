@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>sto26 · Fuzzer Cego (sem CVEs)</title>
+    <title>sto26 · Fuzzer Cego (Completo e Estável)</title>
     <style>
         body { background: #0a0c12; color: #ccc; font-family: monospace; padding: 20px; }
         .log { background: #03050a; height: 40vh; overflow-y: auto; padding: 10px; border-radius: 12px; font-size: 12px; }
@@ -11,11 +11,12 @@
         button { background: #2f5b8c; border: none; padding: 8px 16px; border-radius: 40px; color: white; margin: 5px; cursor: pointer; }
         .stats { display: flex; gap: 20px; margin: 20px 0; flex-wrap: wrap; }
         .stat { background: #0b0e16; padding: 8px 16px; border-radius: 20px; }
+        .crash-badge { background: #5a1e1e; }
     </style>
 </head>
 <body>
 <div>
-    <h1>🧬 Fuzzer Cego · WebKit (apenas métodos não corrigidos)</h1>
+    <h1>🧬 Fuzzer Cego (Completo) · WebKit iOS 27 beta 1</h1>
     <div class="stats">
         <div class="stat">🔢 Testes: <span id="count">0</span></div>
         <div class="stat">💥 Crashes salvos: <span id="crashCount">0</span></div>
@@ -23,10 +24,10 @@
         <div class="stat">🔄 Reloads auto: <span id="reloadCount">0</span></div>
     </div>
     <div>
-        <button id="startBtn">▶ INICIAR (sem CVEs)</button>
+        <button id="startBtn">▶ INICIAR</button>
         <button id="stopBtn" disabled>⏹️ PARAR</button>
         <button id="exportBtn" disabled>💾 Exportar payloads</button>
-        <button id="clearBtn">🗑️ Limpar</button>
+        <button id="clearBtn">🗑️ Limpar dados</button>
     </div>
     <div class="log" id="log"></div>
     <div class="payloads" id="payloadsList"></div>
@@ -90,44 +91,49 @@
             return s.replace(/[&<>]/g, m => m==='&'?'&amp;':m==='<'?'&lt;':'&gt;');
         }
         
-        // ========== GERADOR ALEATÓRIO (sem nenhum padrão de CVE) ==========
-        // APIs recentes e mutações de código puro
-        
-        const keywords = ['let', 'const', 'var', 'function', 'class', 'if', 'for', 'while', 'try', 'new', 'return', 'typeof', 'instanceof'];
-        const operators = ['+', '-', '*', '/', '%', '<<', '>>', '>>>', '&', '|', '^', '&&', '||', '===', '!==', '<', '>', '<=', '>='];
-        const builtins = ['Math', 'Date', 'Array', 'Object', 'String', 'Number', 'Boolean', 'RegExp', 'Promise', 'Map', 'Set', 'WeakMap', 'WeakSet', 'Int8Array', 'Uint8Array', 'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array', 'BigInt64Array', 'BigUint64Array', 'DataView', 'ArrayBuffer', 'SharedArrayBuffer', 'Atomics', 'JSON', 'Reflect', 'Proxy', 'WebAssembly', 'URL', 'URLSearchParams', 'TextEncoder', 'TextDecoder', 'AbortController', 'Fetch', 'WebSocket', 'Worker', 'OffscreenCanvas', 'ImageBitmap', 'Crypto', 'SubtleCrypto', 'Performance', 'Intl', 'FinalizationRegistry', 'WeakRef', 'Iterator', 'AsyncIterator', 'AggregateError', 'EvalError', 'RangeError', 'ReferenceError', 'SyntaxError', 'TypeError', 'URIError'];
+        // ========== GERADOR DE CÓDIGO ALEATÓRIO (SINTATICAMENTE VÁLIDO) ==========
+        const operators = ['+', '-', '*', '/', '%', '<<', '>>', '&', '|', '^', '===', '!==', '<', '>', '<=', '>='];
+        const builtins = ['Math', 'Date', 'Array', 'Object', 'String', 'Number', 'RegExp', 'Promise', 'Map', 'Set', 'WeakMap', 'WeakSet', 
+                         'Int8Array', 'Uint8Array', 'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array',
+                         'DataView', 'ArrayBuffer', 'SharedArrayBuffer', 'Atomics', 'JSON', 'Reflect', 'Proxy', 'URL', 'TextEncoder', 'TextDecoder',
+                         'AbortController', 'OffscreenCanvas', 'ImageBitmap', 'Crypto', 'Intl', 'FinalizationRegistry', 'WeakRef'];
         
         function random(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
         function randomString(len) { let s=''; for(let i=0;i<len;i++) s+=String.fromCharCode(random(97,122)); return s; }
-        function randomIdent() { return randomString(random(3,12)); }
+        function randomIdent() { return '_' + randomString(random(3,12)); }
         function randomNumber() { return random(-100000, 100000); }
         function randomFloat() { return (Math.random() * 100000) - 50000; }
         
-        // Gera expressão aleatória simples
+        // Expressão aleatória (sem recursão infinita)
         function randomExpr(depth=0) {
-            if (depth > 3) return randomNumber().toString();
-            let type = random(0,3);
+            if (depth > 4) return randomNumber().toString();
+            let type = random(0,4);
             if (type === 0) return randomNumber().toString();
             if (type === 1) return randomFloat().toString();
             if (type === 2) return `"${randomString(random(1,10))}"`;
-            if (type === 3) return `${randomIdent()}${random(0,1)===0?`[${randomNumber()}]`:''}`;
-            return `(${randomExpr(depth+1)} ${operators[random(0,operators.length-1)]} ${randomExpr(depth+1)})`;
+            if (type === 3) return `new ${builtins[random(0, builtins.length-1)]}()`;
+            if (type === 4) {
+                let len = Math.abs(randomNumber()) % 1000;
+                return `new Array(${len})`;
+            }
+            let op = operators[random(0, operators.length-1)];
+            return `(${randomExpr(depth+1)} ${op} ${randomExpr(depth+1)})`;
         }
         
-        // Cria um bloco de código aleatório
+        // Bloco de código (várias instruções)
         function randomBlock() {
-            let lines = random(1, 10);
+            let lines = random(1, 5);
             let code = "";
             for (let i=0; i<lines; i++) {
-                let choice = random(0, 10);
+                let choice = random(0, 8);
                 if (choice < 3) {
                     let varName = randomIdent();
-                    code += `let ${varName} = ${randomExpr()};\n`;
-                } else if (choice < 6) {
+                    code += `var ${varName} = ${randomExpr()};\n`;
+                } else if (choice < 5) {
+                    code += `try { ${randomExpr()} } catch(e) {}\n`;
+                } else if (choice < 7) {
                     let builtin = builtins[random(0, builtins.length-1)];
-                    code += `let x = new ${builtin}(${randomExpr()});\n`;
-                } else if (choice < 8) {
-                    code += `try { ${randomExpr()} } catch(e) { }\n`;
+                    code += `var _obj = new ${builtin}(${randomExpr()});\n`;
                 } else {
                     code += `${randomIdent()} = ${randomExpr()};\n`;
                 }
@@ -135,38 +141,49 @@
             return code;
         }
         
-        // Gerador principal: cria código aleatório (nenhum padrão conhecido)
+        // Geração principal: código aleatório mas sintaticamente válido
         function generateRandomCode() {
             let parts = [];
-            let numFuncs = random(0, 3);
-            for (let i=0; i<numFuncs; i++) {
+            parts.push('(function(){');
+            // Declara algumas variáveis locais (var)
+            let varCount = random(0, 3);
+            for (let i=0; i<varCount; i++) {
+                parts.push(`var ${randomIdent()} = ${randomExpr()};`);
+            }
+            // Funções auxiliares
+            let funcCount = random(0, 2);
+            for (let i=0; i<funcCount; i++) {
                 let funcName = randomIdent();
-                let args = Array(random(0,3)).fill(0).map(()=>randomIdent()).join(',');
+                let args = Array(random(0,2)).fill(0).map(()=>randomIdent()).join(',');
                 let body = randomBlock();
                 parts.push(`function ${funcName}(${args}) { ${body} }`);
             }
-            let mainBlock = randomBlock();
-            parts.push(mainBlock);
-            // Adicionar loops simples (não infinitos)
+            // Bloco principal
+            parts.push(randomBlock());
+            // Loop simples (não infinito)
             if (random(0,10) < 3) {
                 let loopVar = randomIdent();
-                parts.push(`for(let ${loopVar}=0; ${loopVar}<${random(1,100)}; ${loopVar}++) { ${randomBlock()} }`);
+                let limit = random(1, 100);
+                parts.push(`for(var ${loopVar}=0; ${loopVar}<${limit}; ${loopVar}++) { ${randomBlock()} }`);
             }
-            // Adicionar Promise para assincronismo
+            // Acesso a APIs recentes (mas seguro)
             if (random(0,10) < 2) {
-                parts.push(`new Promise((resolve,reject)=>{ setTimeout(()=>{ resolve(${randomExpr()}); }, ${random(1,10)}); }).then(()=>{ ${randomBlock()} });`);
-            }
-            // Tentar acessar API obscura (ex: CSS, import maps)
-            if (random(0,10) < 2) {
-                parts.push(`document.createElement('style').innerText = '*{--var-${randomString(5)}:${randomNumber()}px}'`);
+                parts.push(`try { document.createElement('style').innerText = '*{--${randomString(5)}:${randomNumber()}px}'; } catch(e){}`);
             }
             if (random(0,10) < 2) {
-                parts.push(`try { import.meta; } catch(e) {}`);
+                parts.push(`try { new OffscreenCanvas(${random(1,100)}, ${random(1,100)}).getContext('2d'); } catch(e){}`);
             }
-            return parts.join('\n');
+            if (random(0,10) < 2 && typeof SharedArrayBuffer !== 'undefined') {
+                parts.push(`try { new SharedArrayBuffer(${Math.abs(randomNumber()) % 65536 + 1}); } catch(e){}`);
+            }
+            parts.push('})();');
+            let fullCode = parts.join('\n');
+            // Garantir que não contenha import.meta (substituir se aparecer)
+            fullCode = fullCode.replace(/import\.meta/g, 'null');
+            return fullCode;
         }
         
-        // ========== EXECUÇÃO EM WORKER ==========
+        // ========== EXECUÇÃO COM WORKER E TIMEOUT ==========
         function executeInWorker(payload, callback) {
             const workerCode = `
                 try {
@@ -181,7 +198,7 @@
             const timeout = setTimeout(() => {
                 worker.terminate();
                 callback({ type: 'timeout' });
-            }, 500);
+            }, 600);
             worker.onmessage = (e) => {
                 clearTimeout(timeout);
                 callback(e.data);
@@ -194,7 +211,7 @@
             };
         }
         
-        // Fila
+        // Fila de processamento
         function processQueue() {
             if (!running) return;
             if (processing) return;
@@ -214,11 +231,12 @@
                     crashPayloads.push({ timestamp: Date.now(), type: 'timeout_hang', payload: payload });
                     updateUI();
                 } else if (result.type === 'exception') {
-                    if (result.error.includes("out of memory") || result.error.includes("RangeError")) {
-                        log(`⚠️ Exceção: ${result.error.substring(0,80)}`, 'warning');
+                    let err = result.error;
+                    if (err.includes("out of memory") || err.includes("RangeError") || err.includes("TypeError")) {
+                        // Ignorar, é normal
                     }
                 } else if (result.type === 'error') {
-                    log(`🌐 Erro: ${result.error}`, 'error');
+                    // Erro de sintaxe ou referência – ignorar
                 }
                 updateUI();
                 processQueue();
@@ -232,14 +250,14 @@
             if (queue.length > 200) queue.shift();
             testCount++;
             updateUI();
-            setTimeout(addPayloadsContinuously, 2);
+            setTimeout(addPayloadsContinuously, 5);
         }
         
         function startFuzzing() {
             if (running) return;
             running = true;
             startTime = Date.now();
-            log("🚀 Fuzzer cego iniciado. Gerando código aleatório (nenhum padrão de CVE).");
+            log("🚀 Fuzzer cego (completo) iniciado. Gerando código aleatório sintaticamente válido.");
             addPayloadsContinuously();
             processQueue();
             startBtn.disabled = true;
@@ -265,7 +283,7 @@
             const blob = new Blob([content], { type: 'text/plain' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = `cego_fuzzer_${Date.now()}.txt`;
+            a.download = `fuzzer_cego_${Date.now()}.txt`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -289,7 +307,7 @@
                 updateUI();
                 let saved = localStorage.getItem('last_payload');
                 if (saved && saved !== "null") {
-                    log("🔄 Reload automático detectado! Crash real.", 'crash');
+                    log("🔄 RELOAD AUTOMÁTICO DETECTADO! Possível crash de memória.", 'crash');
                     crashPayloads.push({ timestamp: Date.now(), type: 'reload_crash', payload: saved });
                     updateUI();
                 }
@@ -303,7 +321,7 @@
         
         checkReload();
         updateUI();
-        log("✅ Fuzzer cego carregado. Nenhum padrão de CVE – apenas mutações aleatórias e APIs recentes.");
+        log("✅ Fuzzer completo carregado. Clique em INICIAR.");
     })();
 </script>
 </body>
