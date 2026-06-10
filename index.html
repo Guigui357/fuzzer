@@ -2,8 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>sto26 · Fuzzer Leve (botões sempre respondem)</title>
+    <title>sto26 · Fuzzer com sessionStorage</title>
     <style>
         body { background: #0a0c12; color: #ccc; font-family: monospace; padding: 20px; }
         .log { background: #03050a; height: 35vh; overflow-y: auto; padding: 10px; border-radius: 12px; font-size: 12px; }
@@ -11,13 +10,11 @@
         button { background: #2f5b8c; border: none; padding: 8px 16px; border-radius: 40px; color: white; margin: 5px; cursor: pointer; }
         .stats { display: flex; gap: 20px; margin: 20px 0; flex-wrap: wrap; }
         .stat { background: #0b0e16; padding: 8px 16px; border-radius: 20px; }
-        .heartbeat { display: inline-block; width: 12px; height: 12px; background: green; border-radius: 50%; margin-left: 10px; animation: pulse 1s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
 <div>
-    <h1>🧬 Fuzzer Leve (UI responsiva) <span id="heartbeat" class="heartbeat"></span></h1>
+    <h1>🧬 Fuzzer · sessionStorage (crash payloads)</h1>
     <div class="stats">
         <div class="stat">🔢 Testes: <span id="count">0</span></div>
         <div class="stat">💥 Crashes salvos: <span id="crashCount">0</span></div>
@@ -43,7 +40,6 @@
         let lastPayload = "";
         let activeWorker = null;
         let timeoutId = null;
-        let uiUpdateTimer = null;
         
         const logDiv = document.getElementById('log');
         const payloadsDiv = document.getElementById('payloadsList');
@@ -55,7 +51,6 @@
         const stopBtn = document.getElementById('stopBtn');
         const exportBtn = document.getElementById('exportBtn');
         const clearBtn = document.getElementById('clearBtn');
-        const heartbeatSpan = document.getElementById('heartbeat');
         
         function log(msg, type='info') {
             const line = document.createElement('div');
@@ -75,15 +70,15 @@
                 let elapsed = (Date.now() - startTime) / 1000;
                 rateSpan.innerText = elapsed > 0 ? Math.floor(testCount / elapsed) : 0;
             } else rateSpan.innerText = 0;
-            // Atualizar lista de payloads (limitada para não sobrecarregar)
+            // Exibir últimos 20 payloads
             if (crashPayloads.length > 0) {
                 let html = '';
                 for (let i = Math.max(0, crashPayloads.length-20); i < crashPayloads.length; i++) {
                     let p = crashPayloads[i];
                     html += `<div style="border-bottom:1px solid #333;margin-bottom:8px;padding-bottom:8px;">
                                 <b>${i+1}. ${p.type}</b> <small>${new Date(p.timestamp).toLocaleString()}</small><br>
-                                <details><summary>Ver payload completo</summary>
-                                <pre style="background:#0a0a12;padding:4px;white-space:pre-wrap;word-break:break-all;">${escapeHtml(p.payload)}</pre>
+                                <details><summary>Ver payload</summary>
+                                <pre style="background:#0a0a12;padding:4px;white-space:pre-wrap;">${escapeHtml(p.payload)}</pre>
                                 </details>
                             </div>`;
                 }
@@ -93,20 +88,11 @@
             }
         }
         
-        // Atualização periódica para não travar a UI
-        function scheduleUIUpdate() {
-            if (uiUpdateTimer) clearTimeout(uiUpdateTimer);
-            uiUpdateTimer = setTimeout(() => {
-                updateUI();
-                scheduleUIUpdate();
-            }, 500);
-        }
-        
         function escapeHtml(s) {
             return s.replace(/[&<>]/g, m => m==='&'?'&amp;':m==='<'?'&lt;':'&gt;');
         }
         
-        // ========== GERADOR DE CÓDIGO (sintaticamente válido) ==========
+        // ========== GERADOR DE PAYLOADS ==========
         const operators = ['+', '-', '*', '/', '%', '<<', '>>', '&', '|', '^', '===', '!==', '<', '>', '<=', '>='];
         const builtins = ['Math', 'Date', 'Array', 'Object', 'String', 'Number', 'RegExp', 'Promise', 'Map', 'Set', 'WeakMap', 'WeakSet',
                          'Int8Array', 'Uint8Array', 'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array',
@@ -161,21 +147,16 @@
                 let limit = random(1, 50);
                 parts.push(`for(var ${loopVar}=0; ${loopVar}<${limit}; ${loopVar}++) { ${randomBlock()} }`);
             }
-            if (random(0,10) < 2) {
-                parts.push(`try { new OffscreenCanvas(${random(1,100)}, ${random(1,100)}).getContext('2d'); } catch(e){}`);
-            }
             parts.push('})();');
-            let fullCode = parts.join('\n');
-            fullCode = fullCode.replace(/import\.meta/g, 'null');
-            return fullCode;
+            return parts.join('\n');
         }
         
-        // ========== EXECUÇÃO COM WORKER (um por vez) ==========
+        // ========== EXECUÇÃO COM WORKER ==========
         function runOneTest() {
             if (!running) return;
             let payload = generateRandomCode();
             lastPayload = payload;
-            localStorage.setItem('last_payload', payload);
+            sessionStorage.setItem('last_payload', payload);  // salva no sessionStorage
             
             const workerCode = `
                 try {
@@ -192,11 +173,11 @@
                 if (activeWorker) {
                     activeWorker.terminate();
                     activeWorker = null;
-                    log("⏰ Timeout (possível hang)", 'warning');
+                    log("⏰ Timeout (hang)", 'warning');
                     crashPayloads.push({ timestamp: Date.now(), type: 'timeout_hang', payload: payload });
-                    scheduleUIUpdate();
+                    updateUI();
                     testCount++;
-                    scheduleUIUpdate();
+                    updateUI();
                     setTimeout(runOneTest, 20);
                 }
             }, 500);
@@ -204,17 +185,14 @@
                 clearTimeout(timeoutId);
                 activeWorker = null;
                 testCount++;
-                if (e.data.type === 'exception') {
-                    // ignorar erros comuns
-                }
-                scheduleUIUpdate();
+                updateUI();
                 setTimeout(runOneTest, 10);
             };
-            worker.onerror = (err) => {
+            worker.onerror = () => {
                 clearTimeout(timeoutId);
                 activeWorker = null;
                 testCount++;
-                scheduleUIUpdate();
+                updateUI();
                 setTimeout(runOneTest, 10);
             };
         }
@@ -223,31 +201,25 @@
             if (running) return;
             running = true;
             startTime = Date.now();
-            log("🚀 Fuzzer leve iniciado (interface sempre responsiva).");
-            scheduleUIUpdate();
+            log("🚀 Fuzzer iniciado (salvando em sessionStorage)");
             runOneTest();
             startBtn.disabled = true;
             stopBtn.disabled = false;
             exportBtn.disabled = false;
-            heartbeatSpan.style.background = 'green';
         }
         
         function stopFuzzing() {
             running = false;
-            if (activeWorker) {
-                activeWorker.terminate();
-                activeWorker = null;
-            }
+            if (activeWorker) activeWorker.terminate();
             if (timeoutId) clearTimeout(timeoutId);
             log("⏸️ Fuzzer parado.");
             startBtn.disabled = false;
             stopBtn.disabled = true;
-            heartbeatSpan.style.background = 'gray';
         }
         
         function exportPayloads() {
             if (crashPayloads.length === 0) { log("Nada para exportar.", 'warning'); return; }
-            let content = "# Fuzzer Leve - Payloads suspeitos\n\n";
+            let content = "# Payloads de crash (sessionStorage)\n\n";
             for (let i=0; i<crashPayloads.length; i++) {
                 let p = crashPayloads[i];
                 content += `=== ${p.type} (${new Date(p.timestamp).toISOString()}) ===\n${p.payload}\n\n`;
@@ -255,7 +227,7 @@
             const blob = new Blob([content], { type: 'text/plain' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = `fuzzer_leve_${Date.now()}.txt`;
+            a.download = `session_fuzzer_${Date.now()}.txt`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -265,7 +237,7 @@
         
         function clearAll() {
             crashPayloads = [];
-            localStorage.removeItem('last_payload');
+            sessionStorage.removeItem('last_payload');
             autoReloadCount = 0;
             testCount = 0;
             updateUI();
@@ -275,9 +247,9 @@
         function checkReload() {
             if (performance.navigation && performance.navigation.type === 1) {
                 autoReloadCount++;
-                let saved = localStorage.getItem('last_payload');
+                let saved = sessionStorage.getItem('last_payload');
                 if (saved && saved !== "null") {
-                    log("🔄 RELOAD AUTOMÁTICO! Possível crash de memória.", 'crash');
+                    log("🔄 RELOAD AUTOMÁTICO! Crash real.", 'crash');
                     crashPayloads.push({ timestamp: Date.now(), type: 'reload_crash', payload: saved });
                 }
                 updateUI();
@@ -291,8 +263,7 @@
         
         checkReload();
         updateUI();
-        log("✅ Fuzzer leve carregado. Botões sempre respondem.");
-        scheduleUIUpdate();
+        log("✅ Fuzzer pronto. sessionStorage será usado para recuperação pós‑crash.");
     })();
 </script>
 </body>
