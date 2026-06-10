@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>sto26 · Fuzzer com localStorage</title>
+    <title>sto26 · Fuzzer com Detecção de Crash Real</title>
     <style>
         body { background: #0a0c12; color: #ccc; font-family: monospace; padding: 20px; }
         .log { background: #03050a; height: 35vh; overflow-y: auto; padding: 10px; border-radius: 12px; font-size: 12px; }
@@ -14,12 +14,12 @@
 </head>
 <body>
 <div>
-    <h1>🧬 Fuzzer · localStorage (crash payloads)</h1>
+    <h1>🧬 Fuzzer com Detecção de Crash Real</h1>
     <div class="stats">
         <div class="stat">🔢 Testes: <span id="count">0</span></div>
         <div class="stat">💥 Crashes salvos: <span id="crashCount">0</span></div>
         <div class="stat">⏱️ Iterações/seg: <span id="rate">0</span></div>
-        <div class="stat">🔄 Reloads auto: <span id="reloadCount">0</span></div>
+        <div class="stat">💀 Crashes reais: <span id="realCrashCount">0</span></div>
     </div>
     <div>
         <button id="startBtn">▶ INICIAR</button>
@@ -35,18 +35,19 @@
         let running = false;
         let testCount = 0;
         let crashPayloads = [];
+        let realCrashCount = 0;
         let startTime = 0;
-        let autoReloadCount = 0;
-        let lastPayload = "";
         let activeWorker = null;
         let timeoutId = null;
+        let lastPayload = "";
         
+        // Elementos DOM
         const logDiv = document.getElementById('log');
         const payloadsDiv = document.getElementById('payloadsList');
         const countSpan = document.getElementById('count');
         const crashSpan = document.getElementById('crashCount');
         const rateSpan = document.getElementById('rate');
-        const reloadSpan = document.getElementById('reloadCount');
+        const realCrashSpan = document.getElementById('realCrashCount');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const exportBtn = document.getElementById('exportBtn');
@@ -65,12 +66,12 @@
         function updateUI() {
             countSpan.innerText = testCount;
             crashSpan.innerText = crashPayloads.length;
-            reloadSpan.innerText = autoReloadCount;
+            realCrashSpan.innerText = realCrashCount;
             if (running && startTime) {
                 let elapsed = (Date.now() - startTime) / 1000;
                 rateSpan.innerText = elapsed > 0 ? Math.floor(testCount / elapsed) : 0;
             } else rateSpan.innerText = 0;
-            // Exibir últimos 20 payloads
+            // Exibir lista de crashes
             if (crashPayloads.length > 0) {
                 let html = '';
                 for (let i = Math.max(0, crashPayloads.length-20); i < crashPayloads.length; i++) {
@@ -92,7 +93,34 @@
             return s.replace(/[&<>]/g, m => m==='&'?'&amp;':m==='<'?'&lt;':'&gt;');
         }
         
-        // ========== GERADOR DE PAYLOADS ==========
+        // ========== DETECÇÃO DE CRASH REAL NA CARGA ==========
+        function checkForCrashOnLoad() {
+            let wasRunning = localStorage.getItem('fuzzerRunning');
+            let savedPayload = localStorage.getItem('last_payload');
+            // Se a flag de execução estava ativa e há payload, foi crash
+            if (wasRunning === 'true' && savedPayload && savedPayload !== 'null') {
+                log("💀 CRASH REAL DETECTADO! A página recarregou após falha.", 'crash');
+                crashPayloads.push({
+                    timestamp: Date.now(),
+                    type: 'real_crash',
+                    payload: savedPayload
+                });
+                realCrashCount++;
+                updateUI();
+                // Limpa a flag para não contar novamente
+                localStorage.setItem('fuzzerRunning', 'false');
+            }
+            // Se havia payload mas a flag não está ativa, pode ter sido reload manual (não contar como crash)
+            else if (savedPayload && savedPayload !== 'null') {
+                log("ℹ️ Payload recuperado, mas não foi crash (reload normal ou limpeza).");
+                // Opcional: salvar como reload manual, mas não como crash real
+            }
+            // Limpa o payload após processar (para evitar duplicação)
+            // Mas cuidado: se o fuzzer estava rodando, o payload será reescrito em breve.
+            // Não limpar agora, apenas marcar que já processamos? Vamos deixar para limpar ao iniciar novo fuzzing.
+        }
+        
+        // ========== GERADOR DE CÓDIGO ALEATÓRIO ==========
         const operators = ['+', '-', '*', '/', '%', '<<', '>>', '&', '|', '^', '===', '!==', '<', '>', '<=', '>='];
         const builtins = ['Math', 'Date', 'Array', 'Object', 'String', 'Number', 'RegExp', 'Promise', 'Map', 'Set', 'WeakMap', 'WeakSet',
                          'Int8Array', 'Uint8Array', 'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array',
@@ -156,7 +184,7 @@
             if (!running) return;
             let payload = generateRandomCode();
             lastPayload = payload;
-            localStorage.setItem('last_payload', payload);  // salva no sessionStorage
+            localStorage.setItem('last_payload', payload);   // salva para recuperação pós-crash
             
             const workerCode = `
                 try {
@@ -173,7 +201,7 @@
                 if (activeWorker) {
                     activeWorker.terminate();
                     activeWorker = null;
-                    log("⏰ Timeout (hang)", 'warning');
+                    log("⏰ Timeout (possível hang)", 'warning');
                     crashPayloads.push({ timestamp: Date.now(), type: 'timeout_hang', payload: payload });
                     updateUI();
                     testCount++;
@@ -201,7 +229,9 @@
             if (running) return;
             running = true;
             startTime = Date.now();
-            log("🚀 Fuzzer iniciado (salvando em sessionStorage)");
+            // Marca que o fuzzer está rodando (para detectar crash)
+            localStorage.setItem('fuzzerRunning', 'true');
+            log("🚀 Fuzzer iniciado (detecção de crash real ativada)");
             runOneTest();
             startBtn.disabled = true;
             stopBtn.disabled = false;
@@ -212,6 +242,8 @@
             running = false;
             if (activeWorker) activeWorker.terminate();
             if (timeoutId) clearTimeout(timeoutId);
+            // Marca que o fuzzer foi interrompido normalmente
+            localStorage.setItem('fuzzerRunning', 'false');
             log("⏸️ Fuzzer parado.");
             startBtn.disabled = false;
             stopBtn.disabled = true;
@@ -219,7 +251,7 @@
         
         function exportPayloads() {
             if (crashPayloads.length === 0) { log("Nada para exportar.", 'warning'); return; }
-            let content = "# Payloads de crash (sessionStorage)\n\n";
+            let content = "# Payloads de crash (reais e timeouts)\n\n";
             for (let i=0; i<crashPayloads.length; i++) {
                 let p = crashPayloads[i];
                 content += `=== ${p.type} (${new Date(p.timestamp).toISOString()}) ===\n${p.payload}\n\n`;
@@ -227,7 +259,7 @@
             const blob = new Blob([content], { type: 'text/plain' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = `session_fuzzer_${Date.now()}.txt`;
+            a.download = `fuzzer_crash_${Date.now()}.txt`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -238,32 +270,30 @@
         function clearAll() {
             crashPayloads = [];
             localStorage.removeItem('last_payload');
-            autoReloadCount = 0;
+            localStorage.removeItem('fuzzerRunning');
+            realCrashCount = 0;
             testCount = 0;
             updateUI();
             log("Dados limpos.");
         }
         
-        function checkReload() {
-            if (performance.navigation && performance.navigation.type === 1) {
-                autoReloadCount++;
-                let saved = localStorage.getItem('last_payload');
-                if (saved && saved !== "null") {
-                    log("🔄 RELOAD AUTOMÁTICO! Crash real.", 'crash');
-                    crashPayloads.push({ timestamp: Date.now(), type: 'reload_crash', payload: saved });
-                }
-                updateUI();
+        // Antes de descarregar a página normalmente, marcamos que não foi crash
+        window.addEventListener('beforeunload', () => {
+            if (running) {
+                localStorage.setItem('fuzzerRunning', 'false');
             }
-        }
+        });
+        
+        // Ao carregar a página, verifica se houve crash
+        checkForCrashOnLoad();
         
         startBtn.onclick = startFuzzing;
         stopBtn.onclick = stopFuzzing;
         exportBtn.onclick = exportPayloads;
         clearBtn.onclick = clearAll;
         
-        checkReload();
         updateUI();
-        log("✅ Fuzzer pronto. localStorage será usado para recuperação pós‑crash.");
+        log("✅ Fuzzer pronto. Crashes reais serão detectados ao recarregar.");
     })();
 </script>
 </body>
