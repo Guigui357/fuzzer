@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>sto26 · Fuzzer com sessionStorage</title>
+    <title>sto26 · Fuzzer com localStorage</title>
     <style>
         body { background: #0a0c12; color: #ccc; font-family: monospace; padding: 20px; }
         .log { background: #03050a; height: 35vh; overflow-y: auto; padding: 10px; border-radius: 12px; font-size: 12px; }
@@ -14,7 +14,7 @@
 </head>
 <body>
 <div>
-    <h1>🧬 Fuzzer · sessionStorage (crash payloads)</h1>
+    <h1>🧬 Fuzzer · localStorage (crash payloads)</h1>
     <div class="stats">
         <div class="stat">🔢 Testes: <span id="count">0</span></div>
         <div class="stat">💥 Crashes salvos: <span id="crashCount">0</span></div>
@@ -156,7 +156,7 @@
             if (!running) return;
             let payload = generateRandomCode();
             lastPayload = payload;
-            sessionStorage.setItem('last_payload', payload);  // salva no sessionStorage
+            localStorage.setItem('last_payload', payload);  // salva no sessionStorage
             
             const workerCode = `
                 try {
@@ -237,7 +237,7 @@
         
         function clearAll() {
             crashPayloads = [];
-            sessionStorage.removeItem('last_payload');
+            localStorage.removeItem('last_payload');
             autoReloadCount = 0;
             testCount = 0;
             updateUI();
@@ -247,7 +247,7 @@
         function checkReload() {
             if (performance.navigation && performance.navigation.type === 1) {
                 autoReloadCount++;
-                let saved = sessionStorage.getItem('last_payload');
+                let saved = localStorage.getItem('last_payload');
                 if (saved && saved !== "null") {
                     log("🔄 RELOAD AUTOMÁTICO! Crash real.", 'crash');
                     crashPayloads.push({ timestamp: Date.now(), type: 'reload_crash', payload: saved });
@@ -263,7 +263,7 @@
         
         checkReload();
         updateUI();
-        log("✅ Fuzzer pronto. sessionStorage será usado para recuperação pós‑crash.");
+        log("✅ Fuzzer pronto. localStorage será usado para recuperação pós‑crash.");
     })();
 </script>
 </body>
