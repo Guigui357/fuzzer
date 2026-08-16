@@ -1,545 +1,346 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>iOS WebKit/JSC Probe Harness v3.3 — FINAL</title>
-<!--
-  Delivery: AirDrop index.html to iPhone -> Files -> open in Safari, OR
-  python3 server.py (serves with COOP/COEP so S runs), open http://<mac-ip>:8000
-  Everything local, no CDN, no external deps.
--->
-<style>
-  body{font-family:ui-monospace,Menlo,monospace;background:#111;color:#ddd;margin:0;padding:16px}
-  h1{font-size:15px;color:#7ee787}
-  button{background:#238636;color:#fff;border:0;padding:8px 11px;margin:4px 6px 4px 0;
-         border-radius:4px;font-family:inherit;font-size:12px}
-  .danger{background:#da3633}
-  button:active{opacity:.7}
-  #log{background:#000;border:1px solid #333;padding:10px;height:58vh;overflow:auto;
-       white-space:pre-wrap;font-size:11px;line-height:1.5}
-  .ok{color:#7ee787}.bad{color:#ff7b72}.warn{color:#f0883e}
-</style>
+  <meta charset="UTF-8">
+  <title>JSPI Battery</title>
 </head>
 <body>
-<h1>iOS WebKit/JSC Probe v3.3 — RAB/OOB/detach/SAB (source-derived)</h1>
-<div>
-  <button onclick="campaign()" style="background:#1f6feb">▶ Run Campaign</button>
-  <button onclick="moduleA2()">A2 wasm detach</button>
-  <button onclick="moduleG()">G RAB tracking</button>
-  <button onclick="moduleJ()">J fixed OOB</button>
-  <button onclick="moduleK()">K strict write</button>
-  <button onclick="moduleL()">L op matrix</button>
-  <button onclick="moduleM()">M structuredClone</button>
-  <button onclick="moduleN()">N Blob size</button>
-  <button onclick="moduleO()">O Atomics</button>
-  <button onclick="moduleP()">P own keys</button>
-  <button onclick="moduleQ()">Q DataView OOB</button>
-  <button onclick="moduleR()">R toHex/toBase64</button>
-  <button onclick="moduleS()">S SAB grow</button>
-  <button onclick="moduleB()">B shift (hist)</button>
-  <button onclick="moduleC()">C getter (hist)</button>
-  <button onclick="moduleD()">D GC stress</button>
-  <button onclick="moduleI()">I array stress</button>
-  <button onclick="moduleE()" class="danger">E OOM (confirm)</button>
-  <button onclick="startFuzz()">F start</button>
-  <button onclick="stopFuzz()">F stop</button>
-  <button onclick="document.getElementById('log').textContent=''">Clear</button>
-</div>
-<pre id="log"></pre>
-
 <script>
-'use strict';
-/* ================= config ================= */
-const DEVICE_OS = 'iOS 27.0 beta 4'; // EDIT per build. UA OS token is frozen since iOS 26.
-/* ========================================== */
+/*
+ * Minimal WASM:
+ *
+ * (module
+ *   (import "e" "s" (func $s (param i32) (result i32)))
+ *   (func (export "f") (param i32) (result i32)
+ *     local.get 0
+ *     call $s
+ *     local.get 0
+ *     call $s
+ *     i32.add
+ *   )
+ * )
+ */
 
-const logEl = document.getElementById('log');
-let passCount=0, failCount=0, infoCount=0, warnCount=0;
+const wasmBytes = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d,
+  0x01, 0x00, 0x00, 0x00,
 
-function log(msg, cls){
-  const d = document.createElement('div');
-  if (cls) d.className = cls;
-  if (cls==='ok') passCount++; else if (cls==='bad') failCount++;
-  else if (cls==='warn') warnCount++; else infoCount++;
-  d.textContent = '[' + new Date().toISOString().slice(11,19) + '] ' + msg;
-  logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
-}
-const pass = m => log('PASS ' + m, 'ok');
-const fail = m => log('FAIL ' + m + ' — investigate', 'bad');
-const warn = m => log('WARN ' + m, 'warn');
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // Type section
+  0x01, 0x04,
+  0x01,
+  0x60, 0x01, 0x7f, 0x01, 0x7f,
 
-function freshPair(){
-  const ab = new ArrayBuffer(16, { maxByteLength: 1<<20 });
-  const fixed = new Uint8Array(ab, 0, 16);   // fixed-length -> goes OOB on shrink
-  ab.resize(8);
-  return { ab, fixed };
-}
-function freshDetached(){
-  const mem = new WebAssembly.Memory({ initial:1, maximum:100 });
-  const view = new Uint8Array(mem.buffer);
-  mem.grow(5);
-  return view;
-}
+  // Import section
+  0x02, 0x07,
+  0x01,
+  0x01, 0x65,
+  0x01, 0x73,
+  0x00, 0x00,
 
-/* ---------- A2: wasm Memory.grow — detach diagnostics ----------
-   Spec ES2024: detach -> viewLen 0, sameBuffer false, read undefined, write silent. */
-async function moduleA2(){
-  log('A2: wasm Memory.grow — detach diagnostics');
-  try{
-    const memory = new WebAssembly.Memory({ initial:1, maximum:100 });
-    const view = new Uint8Array(memory.buffer);
-    const before = { viewLen: view.byteLength, bufLen: memory.buffer.byteLength };
-    memory.grow(5);
-    for (let j=0;j<20;j++) new Uint8Array(1<<20);
-    const after = { viewLen: view.byteLength, bufLen: memory.buffer.byteLength,
-                    sameBuffer: view.buffer === memory.buffer };
-    let read='n/a', write='n/a';
-    try{ read = view[0]; } catch(e){ read = 'THREW '+e.name; }
-    try{ view[0] = 0x41; write = 'silent-ok'; } catch(e){ write = 'THREW '+e.name; }
-    log('A2 before: ' + JSON.stringify(before));
-    log('A2 after:  ' + JSON.stringify(after));
-    log('A2 read:   ' + read + '   write: ' + write);
-    if (after.sameBuffer===false && after.viewLen===0 && read===undefined && write==='silent-ok')
-      pass('A2: conformant');
-    else fail('A2: deviation');
-  } catch(e){ fail('A2 threw: ' + e.name + ' ' + e.message); }
-}
+  // Function section
+  0x03, 0x02,
+  0x01, 0x00,
 
-/* ---------- G: RAB length-tracking view across resize ---------- */
-function moduleG(){
-  log('G: RAB length-tracking view across resize');
-  try{
-    if (typeof ArrayBuffer.prototype.resize !== 'function') return warn('G: RAB unsupported — SKIP');
-    const ab = new ArrayBuffer(16, { maxByteLength: 1<<20 });
-    const track = new Uint8Array(ab);
-    ab.resize(1<<20);
-    track[0xffff] = 0x41;
-    const afterGrow = track.byteLength;
-    ab.resize(8);
-    const afterShrink = track.byteLength;
-    let read;
-    try{ read = track[0xffff]; } catch(e){ read = 'THREW '+e.name; }
-    log('G: afterGrow=' + afterGrow + '  afterShrink=' + afterShrink + '  read=' + read);
-    if (afterGrow===1048576 && afterShrink===8 && read===undefined) pass('G: conformant');
-    else fail('G: stale length metadata — afterShrink=' + afterShrink + ' read=' + read);
-  } catch(e){ fail('G threw: ' + e.name + ' ' + e.message); }
-}
+  // Export section
+  0x07, 0x05,
+  0x01,
+  0x01, 0x66,
+  0x00, 0x01,
 
-/* ---------- J: RAB fixed-length view OOB (ES2026/27) ----------
-   byteLength 0, read undefined, subarray returns EMPTY view (no throw).
-   Only truly-detached buffers throw on subarray (InitializeTypedArrayFromArrayBuffer). */
-function moduleJ(){
-  log('J: RAB fixed-length OOB — spec: len 0, read undefined, subarray EMPTY (no throw)');
-  try{
-    const { fixed } = freshPair();
-    let bl, read, sub;
-    try{ bl = fixed.byteLength; } catch(e){ bl = 'THREW'; }
-    try{ read = fixed[0]; } catch(e){ read = 'THREW '+e.name; }
-    try{ sub = fixed.subarray(0,4).length; } catch(e){ sub = 'THREW '+e.name; }
-    log('J: byteLength=' + bl + '  read=' + read + '  subarray=' + sub);
-    if (bl===0 && read===undefined && sub===0) pass('J: conformant');
-    else fail('J: deviation — byteLength=' + bl + ' read=' + read + ' subarray=' + sub);
-  } catch(e){ fail('J threw: ' + e.name + ' ' + e.message); }
-}
+  // Code section
+  0x0a, 0x0d,
+  0x01,
+  0x0b,
+  0x00,
+  0x20, 0x00,
+  0x10, 0x00,
+  0x20, 0x00,
+  0x10, 0x00,
+  0x6a,
+  0x0b
+]);
 
-/* ---------- K: strict-mode write to detached-backed view ----------
-   ES2024 note: set on detached-backed view silently no-ops even in strict mode. */
-function moduleK(){
-  log('K: strict-mode write to detached-backed view');
-  try{
-    const view = freshDetached();
-    let write='n/a', read='n/a';
-    (function(){
-      'use strict';
-      try{ view[0] = 0x41; write = 'silent-ok'; } catch(e){ write = 'THREW '+e.name; }
-      try{ read = view[0]; } catch(e){ read = 'THREW '+e.name; }
-    })();
-    log('K: write=' + write + '  read=' + read);
-    if (write==='silent-ok' && read===undefined) pass('K: conformant');
-    else fail('K: deviation — write=' + write + ' read=' + read);
-  } catch(e){ fail('K threw: ' + e.name + ' ' + e.message); }
-}
+const results = [];
 
-/* ---------- L: full op matrix — OOB vs DETACHED ----------
-   Element methods THROW TypeError on OOB and detached (IsTypedArrayOutOfBounds).
-   Only byteLength/read/write are length-0/silent. subarray: OOB->empty, detached->THROW.
-   A value instead of THREW on any element method = OOB read over shrunk/freed vector. */
-function moduleL(){
-  log('L: op matrix — OOB (RAB shrunk) vs DETACHED (wasm grown)');
-  function row(tag, v){
-    const r = {};
-    r.byteLength = v.byteLength;
-    try{ r.read = String(v[0]); } catch(e){ r.read = 'THREW'; }
-    try{ v[0] = 1; r.write = 'silent'; } catch(e){ r.write = 'THREW'; }
-    try{ r.spread = [...v].length; } catch(e){ r.spread = 'THREW'; }
-    try{ r.iter = v.values().next().done ? 'done' : 'VAL'; } catch(e){ r.iter = 'THREW'; }
-    try{ r.map = v.map(x=>x).length; } catch(e){ r.map = 'THREW'; }
-    try{ r.slice = v.slice().length; } catch(e){ r.slice = 'THREW'; }
-    try{ r.find = v.find(()=>true); } catch(e){ r.find = 'THREW'; }
-    try{ r.includes = v.includes(1); } catch(e){ r.includes = 'THREW'; }
-    try{ r.fill = v.fill(1).length; } catch(e){ r.fill = 'THREW'; }
-    try{ v.set([1,2]); r.set = 'ok'; } catch(e){ r.set = 'THREW'; }
-    try{ r.subarray = v.subarray(0,4).length; } catch(e){ r.subarray = 'THREW'; }
-    try{ r.construct = new Uint8Array(v).length; } catch(e){ r.construct = 'THREW'; }
-    try{ r.join = v.join(','); } catch(e){ r.join = 'THREW'; }
-    try{ r.reduce = v.reduce((a,b)=>a+b, 7); } catch(e){ r.reduce = 'THREW'; }
-    try{ r.desc = Object.getOwnPropertyDescriptor(v, '0'); } catch(e){ r.desc = 'THREW'; }
-    log(tag + ': ' + JSON.stringify(r));
-    return r;
-  }
-  const THROW = ['spread','iter','map','slice','find','includes','fill','set','join','reduce','construct'];
-  try{
-    const o = row('L OOB      ', freshPair().fixed);
-    const d = row('L DETACHED ', freshDetached());
-    let issues = 0;
-    if (o.byteLength !== 0) issues++;
-    if (o.read !== 'undefined') issues++;
-    if (o.write !== 'silent') issues++;
-    for (const k of THROW) if (o[k] !== 'THREW') issues++;
-    if (o.subarray !== 0) issues++;
-    if (o.desc !== undefined && o.desc !== 'THREW') issues++;
-    if (d.byteLength !== 0) issues++;
-    if (d.read !== 'undefined') issues++;
-    if (d.write !== 'silent') issues++;
-    for (const k of THROW) if (d[k] !== 'THREW') issues++;
-    if (d.subarray !== 'THREW') issues++;
-    if (d.desc !== undefined && d.desc !== 'THREW') issues++;
-    if (issues) fail('L: deviation (' + issues + ' op(s)) — see JSON');
-    else pass('L: OOB and DETACHED conformant; discriminator = subarray OOB:0 / detached:THREW');
-  } catch(e){ fail('L threw: ' + e.name + ' ' + e.message); }
-}
-
-/* ---------- M: structuredClone of OOB / detached views ----------
-   FAIL only if clone has byteLength > 0 (stale length read during serialize). */
-function moduleM(){
-  log('M: structuredClone on OOB and detached views');
-  function probe(tag, view){
-    try{
-      const c = structuredClone(view);
-      if (c && c.byteLength > 0){ fail(tag + ': CLONED LEN=' + c.byteLength + ' — stale-length read'); return; }
-      log(tag + ': clone len=' + (c ? c.byteLength : '?'));
-      pass(tag + ': conformant');
-    } catch(e){
-      log(tag + ': threw ' + e.name + ' (non-leak)');
-      pass(tag + ': conformant (throw)');
-    }
-  }
-  probe('M OOB     ', freshPair().fixed);
-  probe('M DETACHED', freshDetached());
-}
-
-/* ---------- N: Blob size from OOB / detached views ----------
-   FAIL only if size > 0 (stale byteLength copied into blob data). */
-function moduleN(){
-  log('N: Blob size from OOB and detached views');
-  function probe(tag, view){
-    try{
-      const b = new Blob([view]);
-      log(tag + ': Blob size=' + b.size);
-      if (b.size === 0) pass(tag + ': conformant');
-      else fail(tag + ': size=' + b.size + ' — stale byteLength into Blob data');
-    } catch(e){
-      log(tag + ': threw ' + e.name + ' (BufferSource witness check)');
-      pass(tag + ': conformant (throw)');
-    }
-  }
-  probe('N OOB     ', freshPair().fixed);
-  probe('N DETACHED', freshDetached());
-}
-
-/* ---------- O: Atomics on OOB / detached views ----------
-   ValidateIntegerTypedArray: TypeError if detached OR out-of-bounds. */
-function moduleO(){
-  log('O: Atomics.load on OOB and detached views');
-  const sane = new Uint8Array([1,2,3]);
-  let saneVal;
-  try{ saneVal = Atomics.load(sane, 0); } catch(e){ saneVal = 'THREW '+e.name; }
-  log('O sanity (in-bounds): ' + saneVal);
-  function probe(tag, view){
-    try{
-      const r = Atomics.load(view, 0);
-      fail(tag + ': returned ' + r + ' — expected TypeError (OOB read!)');
-    } catch(e){
-      if (e.name === 'TypeError') pass(tag + ': TypeError (conformant)');
-      else fail(tag + ': threw ' + e.name + ' — unexpected');
-    }
-  }
-  probe('O OOB     ', freshPair().fixed);
-  probe('O DETACHED', freshDetached());
-}
-
-/* ---------- P: own keys / JSON of OOB view ----------
-   Integer-indexed exotic [[OwnPropertyKeys]] must not expose stale indices. */
-function moduleP(){
-  log('P: Object.keys / JSON.stringify on OOB view');
-  try{
-    const v = freshPair().fixed;
-    const keys = Object.keys(v);
-    const names = Object.getOwnPropertyNames(v);
-    const json = JSON.stringify(v);
-    const desc = Object.getOwnPropertyDescriptor(v, '0');
-    log('P: keys=' + JSON.stringify(keys) + '  names=' + JSON.stringify(names) +
-        '  json=' + json + '  desc=' + (desc === undefined ? 'undefined' : JSON.stringify(desc)));
-    if (keys.length===0 && names.length===0 && json==='{}' && desc===undefined)
-      pass('P: conformant — no stale indices');
-    else fail('P: stale index exposure — keys=' + keys.length);
-  } catch(e){ fail('P threw: ' + e.name + ' ' + e.message); }
-}
-
-/* ---------- Q: DataView on RAB shrunk out from under it ----------
-   DataView byteLength THROWS TypeError on OOB (25.3.4.3) — unlike TypedArray->0. */
-function moduleQ(){
-  log('Q: DataView on RAB shrunk — byteLength THROWS TypeError (25.3.4.3)');
-  try{
-    const ab = new ArrayBuffer(16, { maxByteLength: 1<<20 });
-    const dv = new DataView(ab, 0, 16);
-    ab.resize(8);
-    let bl, get, set;
-    try{ bl = dv.byteLength; } catch(e){ bl = 'THREW'; }
-    try{ get = dv.getUint8(0); } catch(e){ get = 'THREW '+e.name; }
-    try{ dv.setUint8(0, 1); set = 'ok'; } catch(e){ set = 'THREW '+e.name; }
-    log('Q: byteLength=' + bl + '  get=' + get + '  set=' + set);
-    if (bl === 'THREW' && String(get).indexOf('THREW TypeError') === 0 &&
-        String(set).indexOf('THREW TypeError') === 0)
-      pass('Q: conformant (all three throw TypeError)');
-    else fail('Q: deviation — byteLength=' + bl + ' get=' + get + ' set=' + set);
-  } catch(e){ fail('Q threw: ' + e.name + ' ' + e.message); }
-}
-
-/* ---------- R: NEW Uint8Array APIs — freshest source surface ----------
-   JSGenericTypedArrayViewPrototype.cpp: toHex/toBase64/setFromBase64/setFromHex
-   all guarded by isIntegerIndexedObjectOutOfBounds() -> TypeError. */
-function moduleR(){
-  log('R: toHex / toBase64 / setFromHex on OOB and detached views');
-  if (typeof Uint8Array.prototype.toHex !== 'function')
-    return warn('R: toHex/toBase64 not present on this build — SKIP');
-  const sane = new Uint8Array([0xde, 0xad]);
-  try{ log('R sanity in-bounds: toHex=' + sane.toHex() + ' toBase64=' + sane.toBase64()); } catch(e){}
-  function probe(tag, view){
-    const out = {};
-    try{ out.toHex = view.toHex(); } catch(e){ out.toHex = 'THREW '+e.name; }
-    try{ out.toBase64 = view.toBase64(); } catch(e){ out.toBase64 = 'THREW '+e.name; }
-    try{ view.setFromHex('00'); out.setFromHex = 'ok'; } catch(e){ out.setFromHex = 'THREW '+e.name; }
-    log(tag + ': ' + JSON.stringify(out));
-    let bad = 0;
-    for (const k of ['toHex','toBase64','setFromHex'])
-      if (String(out[k]).indexOf('THREW') !== 0) bad++;
-    if (bad) fail(tag + ': ' + bad + ' op(s) returned data instead of TypeError');
-    else pass(tag + ': all guarded (TypeError)');
-  }
-  probe('R OOB     ', freshPair().fixed);
-  probe('R DETACHED', freshDetached());
-}
-
-/* ---------- S: growable SAB — fixed/auto views + grow race ----------
-   SAB grow does NOT detach views (unlike wasm grow).
-   fixed view stays valid (len 16); auto view tracks (1048576).
-   Race: grow reallocs backing store; stale vector/length in cached view = UAF
-   (CVE-2026-20664 sibling). Mismatch read = torn vector = finding.
-   Needs COOP/COEP (server.py) else SAB undefined -> SKIP. */
-function moduleS(){
-  if (typeof SharedArrayBuffer !== 'function')
-    return warn('S: SAB unavailable (needs COOP/COEP headers via server.py) — SKIP');
-  log('S: growable SAB — fixed/auto views + grow race');
-  let issues = 0;
-  try{
-    const sab = new SharedArrayBuffer(16, { maxByteLength: 1<<20 });
-    const fixed = new Uint8Array(sab, 0, 16);
-    const auto  = new Uint8Array(sab);
-    sab.grow(1<<20);
-    for (let j=0;j<10;j++) new Uint8Array(1<<20); // heap churn
-    let fl, fr, fa, al, aw, ar;
-    try{ fl = fixed.byteLength; } catch(e){ fl = 'THREW'; }
-    try{ fr = fixed[0]; } catch(e){ fr = 'THREW '+e.name; }
-    try{ fa = fixed.subarray(0,4).length; } catch(e){ fa = 'THREW '+e.name; }
-    try{ al = auto.byteLength; } catch(e){ al = 'THREW'; }
-    try{ auto[0xffff] = 0x42; aw = 'ok'; } catch(e){ aw = 'THREW '+e.name; }
-    try{ ar = auto[0xffff]; } catch(e){ ar = 'THREW '+e.name; }
-    log('S fixed: byteLength=' + fl + '  read=' + fr + '  subarray=' + fa);
-    log('S auto : byteLength=' + al + '  write=' + aw + '  read=' + ar);
-    if (fl !== 16)      { issues++; fail('S: fixed byteLength=' + fl + ' — expected 16 (must stay valid)'); }
-    if (fr !== 0)       { issues++; fail('S: fixed read=' + fr + ' — expected 0'); }
-    if (fa !== 16)      { issues++; fail('S: fixed subarray=' + fa + ' — expected 16'); }
-    if (al !== 1048576) { issues++; fail('S: auto length=' + al + ' — expected 1048576 (must track grow)'); }
-    if (aw !== 'ok' || ar !== 0x42) { issues++; fail('S: auto write/read=' + aw + '/' + ar + ' — expected ok/0x42 (stale vector?)'); }
-    if (!issues) pass('S: view semantics after grow correct');
-  } catch(e){ fail('S threw: ' + e.name + ' ' + e.message); }
-
-  try{
-    const sab = new SharedArrayBuffer(1024, { maxByteLength: 1<<20 });
-    const view = new Uint8Array(sab);
-    const src =
-      'self.onmessage=function(e){var sab=e.data;' +
-      'for(var i=0;i<1000;i++){if(sab.byteLength<1048576){' +
-      'try{sab.grow(Math.min(sab.byteLength*2,1048576));}catch(err){}}}' +
-      'self.postMessage("done");};';
-    const worker = new Worker(URL.createObjectURL(new Blob([src], { type:'text/javascript' })));
-    worker.postMessage(sab, [sab]);
-    let mismatches = 0, reads = 0;
-    const t0 = performance.now();
-    while (performance.now() - t0 < 3000 && view.byteLength < 1048576){
-      const i = (reads++) & 0xffff;
-      view[i] = i & 0xff;
-      if (view[i] !== (i & 0xff)) mismatches++;
-    }
-    worker.onmessage = function(){ worker.terminate(); };
-    log('S-race: reads=' + reads + '  mismatches=' + mismatches + '  finalLen=' + view.byteLength);
-    if (mismatches === 0) pass('S-race: no torn reads across grow — vector coherent');
-    else fail('S-race: ' + mismatches + ' torn reads — STALE VECTOR/LENGTH — investigate');
-  } catch(e){ fail('S-race threw: ' + e.name + ' ' + e.message); }
-}
-
-/* ---------- historical: B, C, D, I ---------- */
-function moduleB(){
-  log('B: Array.shift OOB (historical)');
-  const N = 300000;
-  function f(a){ return a.shift(); }
-  const w = [1.1,2.2,3.3,4.4];
-  for (let i=0;i<N;i++){ f(w); w.push(i); }
-  const a = [1.1,2.2,3.3,4.4];
-  for (let i=0;i<8;i++) f(a);
-  a.length = 0;
-  const r = f(a);
-  if (r === undefined) pass('B: fixed');
-  else fail('B: shift returned ' + r + ' — OOB read!');
-}
-function moduleC(){
-  log('C: getter-speculation (historical)');
-  function read(o){ return o.x + o.y; }
-  const o = { x:1, y:2 };
-  for (let i=0;i<300000;i++) read(o);
-  Object.defineProperty(o, 'x', { get(){ return 0x41414141; } });
-  const r = read(o);
-  if (r === 0x41414143) pass('C: fixed');
-  else fail('C: result=0x' + r.toString(16));
-}
-function moduleD(){
-  log('D: GC/barrier stress, 40 rounds');
-  let s = 0;
-  try{
-    for (let round=0; round<40; round++){
-      const roots = [];
-      for (let i=0;i<4000;i++){
-        const n = { v:i, next:null, arr:[i,i+1,i+2] };
-        n.next = n; roots.push(n); s += n.v;
+function check(name, fn) {
+  return Promise.resolve()
+    .then(fn)
+    .then(
+      value => {
+        results.push([
+          name,
+          'ok',
+          value
+        ]);
+      },
+      error => {
+        results.push([
+          name,
+          'THROW',
+          error && (
+            error.name + ': ' + error.message
+          )
+        ]);
       }
-      const tmp = [];
-      for (let j=0;j<6;j++) tmp.push(new Uint8Array(32*1024*1024));
-      for (let i=0;i<roots.length;i+=7){ roots[i].v++; s += roots[i].v; }
-    }
-    pass('D: survived, s=' + s);
-  } catch(e){ fail('D threw: ' + e.name + ' ' + e.message); }
+    );
 }
-function moduleI(){
-  log('I: double-array store + GC stress, 60 rounds');
-  let s = 0;
-  try{
-    for (let round=0; round<60; round++){
-      const a = [1.1, 2.2, 3.3];
-      for (let i=0;i<4000;i++){
-        if (i === 2000) a[0] = { v:0x41414141 };
-        s += (a[0] && a[0].v) ? a[0].v : a[0];
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+
+    new Promise(resolve => {
+      setTimeout(() => {
+        resolve('TIMEOUT');
+      }, ms);
+    })
+  ]);
+}
+
+(async () => {
+
+  /*
+   * JSPI availability
+   */
+  if (
+    typeof WebAssembly === 'undefined' ||
+    !('Suspending' in WebAssembly) ||
+    !('promising' in WebAssembly)
+  ) {
+    document.title = 'no JSPI';
+
+    document.body.textContent =
+      'JSPI não está disponível neste ambiente.';
+
+    return;
+  }
+
+  /*
+   * Base instance
+   */
+  const { instance } =
+    await WebAssembly.instantiate(
+      wasmBytes,
+      {
+        e: {
+          s: WebAssembly.Suspending(
+            async x => x
+          )
+        }
       }
-      for (let j=0;j<4;j++) new Uint8Array(16*1024*1024);
+    );
+
+  const f =
+    WebAssembly.promising(
+      instance.exports.f
+    );
+
+  /*
+   * 1. Double suspend + result correctness
+   */
+  await check(
+    'double-suspend',
+    () =>
+      f(21).then(
+        r =>
+          r === 42
+            ? 'ok'
+            : 'WRONG:' + r
+      )
+  );
+
+  /*
+   * 2. Reentrant calls
+   */
+  await check(
+    'reentrant',
+    () => {
+      const g =
+        WebAssembly.promising(
+          instance.exports.f
+        );
+
+      return g(1)
+        .then(() => g(2))
+        .then(() => 'done');
     }
-    pass('I: survived, s=' + s);
-  } catch(e){ fail('I threw: ' + e.name + ' ' + e.message); }
-}
+  );
 
-/* ---------- E: OOM DoS (gated, off in campaign) ---------- */
-function moduleE(){
-  if (!confirm('E will likely crash/kill this tab. Continue?')) return;
-  log('E: allocating + touching pages...', 'warn');
-  const blocks = [];
-  try{
-    for (;;){
-      const b = new Uint8Array(64*1024*1024);
-      for (let i=0;i<b.length;i+=4096) b[i] = 1;
-      blocks.push(b);
+  /*
+   * 3. GC pressure while suspended
+   *
+   * Reduced from 1,000,000 allocations
+   * to avoid intentionally exhausting memory.
+   */
+  await check(
+    'gc-during-suspend',
+    () => {
+      let junk = [];
+
+      const p =
+        f(7).then(
+          v =>
+            junk.length
+              ? 'done'
+              : 'x'
+        );
+
+      for (let i = 0; i < 10000; i++) {
+        junk.push(
+          new ArrayBuffer(4096)
+        );
+      }
+
+      return p;
     }
-  } catch(e){ warn('E: OOM after ' + blocks.length + ' blocks (' + (blocks.length*64) + ' MB) — survived'); }
-}
+  );
 
-/* ---------- F: seeded template fuzzer ---------- */
-let fuzzState = null;
-function mulberry32(seed){
-  return function(){
-    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
-    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  };
-}
-function makeProgram(rnd){
-  const a = Math.floor(rnd()*4096), b = Math.floor(rnd()*1024)+1;
-  const templates = [
-    '(function(){var a=[1.1,2.2];for(var i=0;i<8000;i++){a.push(i);a.shift();}a.length=0;return a.shift();})()',
-    '(function(){var t=new Uint8Array(' + b + ');for(var i=0;i<4000;i++){t[i%' + b + ']=i;var u=new Uint8Array(t.buffer);u[0]=i;}return t[0];})()',
-    '(function(){var o={x:' + a + ',y:' + b + '};var s=0;for(var i=0;i<4000;i++){if(i===2000)Object.defineProperty(o,"x",{get:function(){return ' + a + '+1;}});s+=o.x+o.y;}return s;})()',
-    '(function(){var ab=new ArrayBuffer(64,{maxByteLength:1048576});var v=new Uint8Array(ab,0,64);ab.resize(' + b + ');var s=0;for(var i=0;i<2000;i++){s+=v[i];v[i%8]=i;}return s;})()',
-    '(function(){var m=new WebAssembly.Memory({initial:1,maximum:100});var v=new Uint8Array(m.buffer);m.grow(5);var s=0;for(var i=0;i<2000;i++){try{s+=v[i];}catch(e){}}try{v.set([1,2,3]);}catch(e){}return s;})()'
-  ];
-  return templates[Math.floor(rnd()*templates.length)];
-}
-function startFuzz(){
-  if (fuzzState) return;
-  const seed = Math.floor(Math.random()*0xffffffff);
-  const rnd = mulberry32(seed);
-  let n = 0;
-  log('F: fuzzer started, seed=0x' + seed.toString(16) + ' — tab death mid-run = finding.', 'warn');
-  fuzzState = setInterval(() => {
-    for (let k=0;k<50;k++){ try{ eval(makeProgram(rnd)); } catch(e){} n++; }
-    if (n % 5000 === 0) log('F: ' + n + ' programs');
-  }, 50);
-}
-function stopFuzz(){
-  if (fuzzState){ clearInterval(fuzzState); fuzzState = null; log('F: stopped'); }
-}
+  /*
+   * 4. Resolve with incompatible JS value
+   */
+  await check(
+    'resolve-symbol',
+    async () => {
 
-/* ---------- Campaign ---------- */
-async function campaign(){
-  passCount = failCount = infoCount = warnCount = 0;
-  log('========== CAMPAIGN START ==========', 'warn');
-  await moduleA2(); await sleep(120);
-  moduleG();        await sleep(120);
-  moduleJ();        await sleep(120);
-  moduleK();        await sleep(120);
-  moduleL();        await sleep(120);
-  moduleM();        await sleep(120);
-  moduleN();        await sleep(120);
-  moduleO();        await sleep(120);
-  moduleP();        await sleep(120);
-  moduleQ();        await sleep(120);
-  moduleR();        await sleep(120);
-  moduleS();        await sleep(120);
-  moduleB();        await sleep(120);
-  moduleC();        await sleep(120);
-  moduleD();        await sleep(300);
-  moduleI();        await sleep(300);
-  log('========== CAMPAIGN END: ' + passCount + ' PASS / ' + failCount + ' FAIL / ' +
-      warnCount + ' WARN / ' + infoCount + ' INFO ==========', 'warn');
-  if (failCount === 0) log('All conformant. Any FAIL on a future build = real deviation — keep this log.');
-  else log('FAILURES — investigate flagged lines.', 'bad');
-}
+      const { instance: inst2 } =
+        await WebAssembly.instantiate(
+          wasmBytes,
+          {
+            e: {
+              s: WebAssembly.Suspending(
+                async () =>
+                  Symbol('x')
+              )
+            }
+          }
+        );
 
-window.onerror = function(msg, src, line){ log('onerror: ' + msg + ' @' + line, 'bad'); };
+      const g =
+        WebAssembly.promising(
+          inst2.exports.f
+        );
 
-/* ---------- banner + preflight ---------- */
-(function(){
-  const ua = navigator.userAgent;
-  const safVer = (ua.match(/Version\/([\d.]+)/) || ['','?'])[1];
-  const uaOs = (ua.match(/OS (\d+[_\d]*)/) || ['','?'])[1].replace(/_/g,'.');
-  log('Harness ready. ' + DEVICE_OS + ' (Safari ' + safVer + '; UA token frozen at ' + uaOs +
-      ' — UA OS token is a lie since iOS 26, Version/ is real)');
-  log('Preflight: RAB=' + (typeof ArrayBuffer.prototype.resize==='function') +
-      ' structuredClone=' + (typeof structuredClone==='function') +
-      ' Atomics=' + (typeof Atomics!=='undefined') +
-      ' wasm=' + (typeof WebAssembly!=='undefined') +
-      ' toHex=' + (typeof Uint8Array.prototype.toHex==='function') +
-      ' crossOriginIsolated=' + crossOriginIsolated +
-      ' (S runs only if true — serve via server.py)');
+      return g(1).then(
+        v => 'got:' + v
+      );
+    }
+  );
+
+  /*
+   * 5. Never resolve
+   *
+   * A timeout prevents the whole battery
+   * from hanging indefinitely.
+   */
+  await check(
+    'never-resolve',
+    async () => {
+
+      const { instance: inst3 } =
+        await WebAssembly.instantiate(
+          wasmBytes,
+          {
+            e: {
+              s: WebAssembly.Suspending(
+                () =>
+                  new Promise(
+                    () => {}
+                  )
+              )
+            }
+          }
+        );
+
+      const g =
+        WebAssembly.promising(
+          inst3.exports.f
+        );
+
+      return withTimeout(
+        g(1).then(
+          v => 'leak-then:' + v
+        ),
+        2000
+      );
+    }
+  );
+
+  /*
+   * 6. Exception inside suspending import
+   */
+  await check(
+    'throw-in-suspending',
+    async () => {
+
+      const { instance: inst4 } =
+        await WebAssembly.instantiate(
+          wasmBytes,
+          {
+            e: {
+              s: WebAssembly.Suspending(
+                async () => {
+                  throw new RangeError(
+                    'boom'
+                  );
+                }
+              )
+            }
+          }
+        );
+
+      return WebAssembly
+        .promising(inst4.exports.f)(1)
+        .then(
+          () => 'NO-THROW',
+          error =>
+            error &&
+            error.name +
+            ': ' +
+            error.message
+        );
+    }
+  );
+
+  /*
+   * 7. promising() with non-function
+   */
+  await check(
+    'promising-nonfn',
+    () =>
+      WebAssembly.promising(42)
+  );
+
+  /*
+   * Final output
+   */
+  console.log(
+    'JSPI battery results:',
+    results
+  );
+
+  document.title =
+    JSON.stringify(
+      results,
+      null,
+      1
+    );
+
+  /*
+   * Also show readable results
+   * in the page.
+   */
+  const pre =
+    document.createElement('pre');
+
+  pre.textContent =
+    JSON.stringify(
+      results,
+      null,
+      2
+    );
+
+  document.body.appendChild(pre);
+
 })();
 </script>
 </body>
