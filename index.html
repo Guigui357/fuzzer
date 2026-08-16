@@ -1,1178 +1,769 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-    <title>NECRO-FUZZER · CONFIRMED FINDINGS</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            background: #0a0a12;
-            color: #c0c0d0;
-            font-family: 'Courier New', monospace;
-            padding: 14px;
-            font-size: 13px;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        .container { max-width: 1000px; width: 100%; }
-        .header {
-            text-align: center;
-            padding: 16px 0;
-            border-bottom: 2px solid #44ff88;
-            margin-bottom: 16px;
-        }
-        .header h1 {
-            font-size: 1.6em;
-            font-weight: 400;
-            letter-spacing: 3px;
-            color: #44ff88;
-            text-shadow: 0 0 30px rgba(68,255,136,0.2);
-        }
-        .header .subtitle { color: #666; font-size: 0.8em; margin-top: 2px; }
-        .badge {
-            display: inline-block;
-            background: #1a1a3a;
-            padding: 2px 12px;
-            border-radius: 10px;
-            font-size: 0.65em;
-            color: #888;
-            border: 1px solid #2a2a4a;
-            margin: 2px;
-        }
-        .badge.red { border-color: #ff4466; color: #ff4466; }
-        .badge.green { border-color: #44ff88; color: #44ff88; }
-        .badge.yellow { border-color: #ddbb44; color: #ddbb44; }
-        .badge.orange { border-color: #ff8800; color: #ff8800; }
-        .badge.purple { border-color: #8844dd; color: #8844dd; }
-        .badge.blue { border-color: #4488dd; color: #4488dd; }
-        .panel {
-            background: #12121e;
-            border: 1px solid #1e1e32;
-            border-radius: 8px;
-            padding: 14px 16px;
-            margin-bottom: 14px;
-        }
-        .panel-title {
-            color: #8a8aff;
-            font-size: 0.95em;
-            margin-bottom: 8px;
-            border-bottom: 1px solid #1a1a2a;
-            padding-bottom: 5px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .btn-group {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            margin: 6px 0;
-        }
-        .btn {
-            background: #1a1a2e;
-            color: #c0c0d0;
-            border: 1px solid #2a2a4a;
-            padding: 8px 14px;
-            border-radius: 6px;
-            font-family: inherit;
-            font-size: 0.8em;
-            cursor: pointer;
-            transition: all 0.2s;
-            flex: 1 1 auto;
-            min-width: 80px;
-            text-align: center;
-        }
-        .btn:hover { background: #2a2a4a; border-color: #4a4a7a; color: #fff; }
-        .btn:active { transform: scale(0.97); }
-        .btn.danger { background: #3a1a1a; border-color: #5a2a2a; }
-        .btn.danger:hover { background: #5a2a2a; }
-        .btn.success { background: #1a3a2a; border-color: #2a5a3a; }
-        .btn.success:hover { background: #2a5a3a; }
-        .btn.primary { background: #2a2a5a; border-color: #4a4a8a; }
-        .btn.primary:hover { background: #3a3a7a; }
-        .btn.orange { background: #3a2a1a; border-color: #5a4a2a; }
-        .btn.orange:hover { background: #5a4a2a; }
-        .btn.purple { background: #2a1a3a; border-color: #4a2a5a; }
-        .btn.purple:hover { background: #4a2a5a; }
-        .btn.blue { background: #1a2a3a; border-color: #2a4a5a; }
-        .btn.blue:hover { background: #2a4a5a; }
-        .btn:disabled { opacity: 0.3; cursor: not-allowed; }
-        .log-area {
-            background: #08080e;
-            border: 1px solid #1a1a2a;
-            border-radius: 4px;
-            padding: 8px 10px;
-            max-height: 300px;
-            overflow-y: auto;
-            font-size: 0.73em;
-            line-height: 1.5;
-            color: #888;
-            white-space: pre-wrap;
-            word-break: break-all;
-            font-family: inherit;
-        }
-        .log-area .log-entry { padding: 1px 0; border-bottom: 1px solid #0a0a12; }
-        .log-area .log-entry.info { color: #88bbdd; }
-        .log-area .log-entry.success { color: #66dd99; }
-        .log-area .log-entry.error { color: #dd6688; }
-        .log-area .log-entry.warning { color: #ddbb66; }
-        .log-area .log-entry.crash { color: #ff4466; font-weight: bold; }
-        .log-area .log-entry.found { color: #44ff88; font-weight: bold; }
-        .log-area .log-entry.fuzz { color: #aa88dd; }
-        .log-area .log-entry.pac { color: #ff8800; font-weight: bold; }
-        .log-area .log-entry.restore { color: #4488dd; font-weight: bold; }
-        .log-area::-webkit-scrollbar { width: 4px; }
-        .log-area::-webkit-scrollbar-track { background: #0a0a12; }
-        .log-area::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 2px; }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-            gap: 4px 8px;
-            font-size: 0.75em;
-            margin-top: 6px;
-        }
-        .stats-grid .label { color: #666; }
-        .stats-grid .value { color: #ddd; }
-        .stats-grid .value.crash { color: #ff4466; }
-        .stats-grid .value.found { color: #44ff88; }
-        .stats-grid .value.blue { color: #4488dd; }
-        .progress-bar {
-            width: 100%;
-            height: 3px;
-            background: #1a1a2a;
-            border-radius: 2px;
-            margin-top: 6px;
-            overflow: hidden;
-        }
-        .progress-bar .fill {
-            height: 100%;
-            background: linear-gradient(90deg, #44ff88, #8a8aff, #ff4466);
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-        .flex-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            align-items: center;
-            justify-content: space-between;
-        }
-        input[type="number"] {
-            background: #0d0d18;
-            border: 1px solid #1a1a2a;
-            color: #c0c0d0;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-family: inherit;
-            font-size: 0.8em;
-            width: 60px;
-        }
-        input[type="number"]:focus { outline: none; border-color: #4a4a8a; }
-        select {
-            background: #0d0d18;
-            border: 1px solid #1a1a2a;
-            color: #c0c0d0;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-family: inherit;
-            font-size: 0.8em;
-        }
-        select:focus { outline: none; border-color: #4a4a8a; }
-        .label-sm { font-size: 0.7em; color: #666; margin-right: 4px; }
-        .persist-badge {
-            background: #1a2a1a;
-            border: 1px solid #44ff88;
-            color: #44ff88;
-            padding: 2px 10px;
-            border-radius: 4px;
-            font-size: 0.6em;
-        }
-        .findings-box {
-            background: #0a0a12;
-            border: 1px solid #44ff88;
-            border-radius: 4px;
-            padding: 8px 10px;
-            font-size: 0.7em;
-            color: #66dd99;
-            overflow-x: auto;
-            white-space: pre-wrap;
-            font-family: inherit;
-            margin: 4px 0;
-            min-height: 60px;
-        }
-        .findings-box .finding-item {
-            padding: 2px 0;
-            border-bottom: 1px solid #1a1a2a;
-        }
-        .findings-box .finding-item .type-uaf { color: #44ff88; }
-        .findings-box .finding-item .type-oob { color: #ff8800; }
-        .findings-box .finding-item .type-crash { color: #ff4466; }
-        canvas { display: none; }
-        @media (max-width:600px) {
-            body { padding: 8px; font-size: 11px; }
-            .header h1 { font-size: 1.2em; }
-            .btn-group { flex-direction: column; }
-            .btn { min-width: 100%; }
-            .stats-grid { grid-template-columns: repeat(3, 1fr); }
-        }
-        .save-indicator {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-left: 6px;
-            background: #44ff88;
-            box-shadow: 0 0 10px #44ff8844;
-            transition: all 0.3s;
-        }
-        .save-indicator.saving {
-            background: #ff8800;
-            animation: pulse 0.5s ease-in-out 3;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.3; transform: scale(0.8); }
-        }
-        .confirmed-badge {
-            background: #1a3a1a;
-            border: 1px solid #44ff88;
-            color: #44ff88;
-            padding: 2px 10px;
-            border-radius: 4px;
-            font-size: 0.7em;
-            animation: glow 2s ease-in-out infinite;
-        }
-        @keyframes glow {
-            0%, 100% { box-shadow: 0 0 5px rgba(68,255,136,0.2); }
-            50% { box-shadow: 0 0 20px rgba(68,255,136,0.5); }
-        }
-    </style>
-</head>
-<body>
-<div class="container">
-
-    <div class="header">
-        <h1>✅ NECRO-FUZZER-CONFIRMED</h1>
-        <div class="subtitle">A15 · iOS 27 · UAF/OOB/CRASH CONFIRMED</div>
-        <div style="margin-top:6px;">
-            <span class="badge green" id="persistBadge">💾 AUTO-SAVE</span>
-            <span class="badge red" id="fuzzStatus">⏹️ STOPPED</span>
-            <span class="badge yellow" id="iterBadge">0 iterations</span>
-            <span class="badge red" id="crashBadge">💥 0 crashes</span>
-            <span class="badge green" id="foundBadge">🔍 0 found</span>
-            <span class="confirmed-badge" id="confirmedBadge">✅ CONFIRMED</span>
-        </div>
-    </div>
-
-    <div class="panel">
-        <div class="panel-title">🎯 Fuzzing Controls <span class="persist-badge">💾 Auto-save every 50 iter</span></div>
-        <div class="btn-group">
-            <button class="btn danger" id="btnStart">▶️ START</button>
-            <button class="btn warning" id="btnStop">⏹️ STOP</button>
-            <button class="btn primary" id="btnSingle">🔬 Single</button>
-            <button class="btn purple" id="btnUAF">🧩 UAF</button>
-            <button class="btn orange" id="btnOOB">📦 OOB</button>
-            <button class="btn blue" id="btnSave">💾 Save</button>
-            <button class="btn" id="btnClear">🗑️ Clear</button>
-        </div>
-        <div class="flex-row" style="margin-top:8px; gap:8px;">
-            <span>
-                <span class="label-sm">Iterations</span>
-                <input type="number" id="iterCount" value="1000" min="1" max="99999">
-            </span>
-            <span>
-                <span class="label-sm">Delay (ms)</span>
-                <input type="number" id="delayMs" value="50" min="0" max="1000">
-            </span>
-            <span>
-                <span class="label-sm">Target</span>
-                <select id="targetSelect">
-                    <option value="all">All</option>
-                    <option value="shader">Shader</option>
-                    <option value="buffer">Buffer</option>
-                    <option value="texture">Texture</option>
-                    <option value="webgl">WebGL</option>
-                </select>
-            </span>
-            <span style="display:flex; align-items:center; gap:4px;">
-                <span style="font-size:0.7em; color:#555;">💾</span>
-                <span class="save-indicator" id="saveIndicator"></span>
-            </span>
-        </div>
-        <div class="progress-bar"><div class="fill" id="progressFill" style="width:0%"></div></div>
-        <div style="margin-top:6px; font-size:0.7em; color:#555;" id="statusText">
-            Ready. Click START or press ENTER.
-        </div>
-    </div>
-
-    <div class="panel">
-        <div class="panel-title">📊 Statistics <span class="badge blue" id="lastSave">Last save: never</span></div>
-        <div class="stats-grid">
-            <span><span class="label">Iterations</span> <span class="value" id="statIter">0</span></span>
-            <span><span class="label">Crashes</span> <span class="value crash" id="statCrashes">0</span></span>
-            <span><span class="label">Hangs</span> <span class="value" id="statHangs">0</span></span>
-            <span><span class="label">OOB</span> <span class="value" id="statOOB">0</span></span>
-            <span><span class="label">UAF</span> <span class="value" id="statUAF">0</span></span>
-            <span><span class="label">Found</span> <span class="value found" id="statFound">0</span></span>
-            <span><span class="label">Runtime</span> <span class="value" id="statRuntime">0s</span></span>
-            <span><span class="label">Crash Rate</span> <span class="value" id="statRate">0%</span></span>
-        </div>
-    </div>
-
-    <div class="panel" style="border-color: #44ff88;">
-        <div class="panel-title">📋 Findings <span class="badge" id="findingsCount">0</span>
-            <span style="font-size:0.6em; color:#44ff88;" id="findingsStatus">✅ UAF: 0 | OOB: 0 | Crash: 0</span>
-        </div>
-        <div class="findings-box" id="findingsArea">
-No findings yet. Run the fuzzer.
-        </div>
-    </div>
-
-    <div class="panel">
-        <div class="panel-title">📜 Log <span class="badge" id="logCount">0</span></div>
-        <div class="log-area" id="logArea">
-            <div class="log-entry info">[INIT] NECRO-FUZZER-CONFIRMED loaded.</div>
-            <div class="log-entry info">[INIT] Target: A15 · iOS 27 · WebKit</div>
-            <div class="log-entry found">[FOUND] This version confirmed UAF, OOB, and crashes.</div>
-            <div class="log-entry restore" id="restoreMsg">[RESTORE] Checking for saved session...</div>
-        </div>
-    </div>
-
-</div>
-
-<script>
-// ============================================================
-// NECRO-FUZZER-CONFIRMED - With UAF/OOB/Crash findings
-// Астерал ГПТ - Confirmed vulnerabilities on A15 iOS 27
-// ============================================================
-
-(function() {
-    'use strict';
-
-    // ============================================
-    // DOM REFS
-    // ============================================
-    const $ = id => document.getElementById(id);
-    const logArea = $('logArea');
-    const logCount = $('logCount');
-    const progressFill = $('progressFill');
-    const statusText = $('statusText');
-    const fuzzStatus = $('fuzzStatus');
-    const iterBadge = $('iterBadge');
-    const crashBadge = $('crashBadge');
-    const foundBadge = $('foundBadge');
-    const findingsArea = $('findingsArea');
-    const findingsCount = $('findingsCount');
-    const findingsStatus = $('findingsStatus');
-    const persistBadge = $('persistBadge');
-    const lastSave = $('lastSave');
-    const restoreMsg = $('restoreMsg');
-    const saveIndicator = $('saveIndicator');
-    const confirmedBadge = $('confirmedBadge');
-
-    const statIter = $('statIter');
-    const statCrashes = $('statCrashes');
-    const statHangs = $('statHangs');
-    const statOOB = $('statOOB');
-    const statUAF = $('statUAF');
-    const statFound = $('statFound');
-    const statRuntime = $('statRuntime');
-    const statRate = $('statRate');
-
-    const btnStart = $('btnStart');
-    const btnStop = $('btnStop');
-    const btnSingle = $('btnSingle');
-    const btnUAF = $('btnUAF');
-    const btnOOB = $('btnOOB');
-    const btnSave = $('btnSave');
-    const btnClear = $('btnClear');
-    const iterCount = $('iterCount');
-    const delayMs = $('delayMs');
-    const targetSelect = $('targetSelect');
-
-    // ============================================
-    // STATE
-    // ============================================
-    let state = {
-        running: false,
-        iterations: 0,
-        crashes: 0,
-        hangs: 0,
-        oob: 0,
-        uaf: 0,
-        found: 0,
-        findings: [],
-        startTime: 0,
-        lastSaveTime: 0,
-        sessionId: Date.now().toString(36)
-    };
-
-    let fuzzTimer = null;
-    let logEntries = 0;
-
-    // ============================================
-    // PERSISTENCE
-    // ============================================
-    const STORAGE_KEY = 'necro_fuzzer_confirmed_state';
-
-    function saveState() {
-        try {
-            const data = {
-                iterations: state.iterations,
-                crashes: state.crashes,
-                hangs: state.hangs,
-                oob: state.oob,
-                uaf: state.uaf,
-                found: state.found,
-                findings: state.findings.slice(0, 100),
-                lastSaveTime: Date.now(),
-                sessionId: state.sessionId
-            };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-            state.lastSaveTime = Date.now();
-            persistBadge.textContent = '💾 SAVED';
-            persistBadge.className = 'badge green';
-            const time = new Date(state.lastSaveTime).toLocaleTimeString();
-            lastSave.textContent = `Last save: ${time}`;
-            saveIndicator.className = 'save-indicator saving';
-            setTimeout(() => { saveIndicator.className = 'save-indicator'; }, 600);
-            return true;
-        } catch (e) {
-            console.warn('Save failed:', e);
-            return false;
-        }
+<!DOCTYPE html> <html lang="en"> <head> 
+<meta charset="utf-8"> <meta 
+name="viewport" 
+content="width=device-width, 
+initial-scale=1"> <title>iOS WebKit/JSC 
+Probe Harness v3.2 — 
+source-derived</title> <style>
+  
+body{font-family:ui-monospace,Menlo,monospace;background:#111;color:#ddd;margin:0;padding:16px}
+  h1{font-size:15px;color:#7ee787}
+  
+button{background:#238636;color:#fff;border:0;padding:8px 
+11px;margin:4px 6px 4px 0;
+         
+border-radius:4px;font-family:inherit;font-size:12px}
+  .danger{background:#da3633} 
+  button:active{opacity:.7}
+  #log{background:#000;border:1px solid 
+#333;padding:10px;height:58vh;overflow:auto;
+       
+white-space:pre-wrap;font-size:11px;line-height:1.5}
+  
+.ok{color:#7ee787}.bad{color:#ff7b72}.warn{color:#f0883e} 
+</style> </head> <body> <h1>iOS WebKit/JSC 
+Probe v3.2 — RAB/OOB &amp; new-API surface 
+(source-derived)</h1> <div>
+  <button onclick="campaign()" 
+style="background:#1f6feb">▶ Run 
+Campaign</button>
+  <button onclick="moduleA2()">A2 wasm 
+detach</button>
+  <button onclick="moduleG()">G RAB 
+tracking</button>
+  <button onclick="moduleJ()">J fixed 
+OOB</button>
+  <button onclick="moduleK()">K strict 
+write</button>
+  <button onclick="moduleL()">L op 
+matrix</button>
+  <button onclick="moduleM()">M 
+structuredClone</button>
+  <button onclick="moduleN()">N Blob 
+size</button>
+  <button onclick="moduleO()">O 
+Atomics</button>
+  <button onclick="moduleP()">P own 
+keys</button>
+  <button onclick="moduleQ()">Q DataView 
+OOB</button>
+  <button onclick="moduleR()">R 
+toHex/toBase64</button>
+  <button onclick="moduleB()">B shift 
+(hist)</button>
+  <button onclick="moduleC()">C getter 
+(hist)</button>
+  <button onclick="moduleD()">D GC 
+stress</button>
+  <button onclick="moduleI()">I array 
+stress</button>
+  <button onclick="moduleS()">H SAB (needs 
+hdrs)</button>
+  <button onclick="moduleE()" 
+class="danger">E OOM (confirm)</button>
+  <button onclick="startFuzz()">F 
+start</button>
+  <button onclick="stopFuzz()">F 
+stop</button>
+  <button 
+onclick="document.getElementById('log').textContent=''">Clear</button> 
+</div> <pre id="log"></pre> <script> 'use 
+strict'; /* ================= config 
+================= */ const DEVICE_OS = 
+'iOS 27.0 beta 4'; // EDIT per build. 
+Safari UA OS token is frozen since iOS 26. 
+/* 
+========================================== 
+*/ const logEl = 
+document.getElementById('log'); let 
+passCount=0, failCount=0, infoCount=0, 
+warnCount=0; function log(msg, cls){
+  const d = document.createElement('div'); 
+  if (cls) d.className = cls;
+  if (cls==='ok') passCount++; else if 
+(cls==='bad') failCount++;
+  else if (cls==='warn') warnCount++; else 
+infoCount++;
+  d.textContent = '[' + new 
+Date().toISOString().slice(11,19) + '] ' + 
+msg;
+  logEl.appendChild(d); logEl.scrollTop = 
+logEl.scrollHeight; } const pass = m => 
+log('PASS ' + m, 'ok'); const fail = m => 
+log('FAIL ' + m + ' — investigate', 
+'bad'); const warn = m => log('WARN ' + m, 
+'warn'); const sleep = ms => new Promise(r 
+=> setTimeout(r, ms)); function 
+freshPair(){
+  const ab = new ArrayBuffer(16, { 
+maxByteLength: 1<<20 });
+  const fixed = new Uint8Array(ab, 0, 16);  
+// fixed-length, will go OOB
+  ab.resize(8); return { ab, fixed }; } 
+function freshDetached(){
+  const mem = new WebAssembly.Memory({ 
+initial:1, maximum:100 });
+  const view = new Uint8Array(mem.buffer); 
+  mem.grow(5); return view;
+} /* ---------- A2: wasm grow detach 
+diagnostics ---------- */ async function 
+moduleA2(){
+  log('A2: wasm Memory.grow — detach 
+diagnostics');
+  try{
+    const memory = new 
+WebAssembly.Memory({ initial:1, 
+maximum:100 });
+    const view = new 
+Uint8Array(memory.buffer);
+    const before = { viewLen: 
+view.byteLength, bufLen: 
+memory.buffer.byteLength };
+    memory.grow(5);
+    for (let j=0;j<20;j++) new 
+Uint8Array(1<<20);
+    const after = { viewLen: 
+view.byteLength, bufLen: 
+memory.buffer.byteLength,
+                    sameBuffer: 
+view.buffer === memory.buffer };
+    let read='n/a', write='n/a';
+    try{ read = view[0]; } catch(e){ read 
+= 'THREW '+e.name; }
+    try{ view[0] = 0x41; write = 
+'silent-ok'; } catch(e){ write = 'THREW 
+'+e.name; }
+    log('A2 before: ' + 
+JSON.stringify(before));
+    log('A2 after:  ' + 
+JSON.stringify(after));
+    log('A2 read:  ' + read + ' write: ' + 
+write);
+    if (after.sameBuffer===false && 
+after.viewLen===0 && read===undefined && 
+write==='silent-ok')
+      pass('A2: conformant');
+    else fail('A2: deviation');
+  } catch(e){ fail('A2 threw: ' + e.name + 
+' ' + e.message); } } /* ---------- G: RAB 
+length-tracking view ---------- */ 
+function moduleG(){
+  log('G: RAB length-tracking view across 
+resize');
+  try{
+    if (typeof 
+ArrayBuffer.prototype.resize !== 
+'function') return warn('G: RAB 
+unsupported — SKIP');
+    const ab = new ArrayBuffer(16, { 
+maxByteLength: 1<<20 });
+    const track = new Uint8Array(ab); 
+    ab.resize(1<<20); track[0xffff] = 
+    0x41; const afterGrow = 
+    track.byteLength; ab.resize(8); const 
+    afterShrink = track.byteLength; let 
+    read;
+    try{ read = track[0xffff]; } catch(e){ 
+read = 'THREW '+e.name; }
+    log('G: afterGrow=' + afterGrow + ' 
+afterShrink=' + afterShrink + ' read=' + 
+read);
+    if (afterGrow===1048576 && 
+afterShrink===8 && read===undefined) 
+pass('G: conformant');
+    else fail('G: stale length metadata — 
+afterShrink=' + afterShrink + ' read=' + 
+read);
+  } catch(e){ fail('G threw: ' + e.name + 
+' ' + e.message); } } /* ---------- J: RAB 
+fixed-length view OOB (ES2026: acts as 
+detached) ---------- */ function 
+moduleJ(){
+  log('J: RAB fixed-length view OOB — 
+spec: length 0, read undefined, subarray 
+EMPTY (no throw)');
+  try{
+    const { fixed } = freshPair(); let bl, 
+    read, sub;
+    try{ bl = fixed.byteLength; } 
+catch(e){ bl = 'THREW'; }
+    try{ read = fixed[0]; } catch(e){ read 
+= 'THREW '+e.name; }
+    try{ sub = fixed.subarray(0,4).length; 
+} catch(e){ sub = 'THREW '+e.name; }
+    log('J: byteLength=' + bl + ' read=' + 
+read + ' subarray=' + sub);
+    if (bl===0 && read===undefined && 
+sub===0) pass('J: conformant (subarray 
+returns empty, no throw)');
+    else fail('J: deviation — byteLength=' 
++ bl + ' read=' + read + ' subarray=' + 
+sub);
+  } catch(e){ fail('J threw: ' + e.name + 
+' ' + e.message); } } /* ---------- K: 
+strict-mode write to detached-backed view 
+---------- */ function moduleK(){
+  log('K: strict-mode write to 
+detached-backed view');
+  try{
+    const view = freshDetached(); let 
+    write='n/a', read='n/a'; (function(){
+      'use strict';
+      try{ view[0] = 0x41; write = 
+'silent-ok'; } catch(e){ write = 'THREW 
+'+e.name; }
+      try{ read = view[0]; } catch(e){ 
+read = 'THREW '+e.name; }
+    })();
+    log('K: write=' + write + '  read=' + 
+read);
+    if (write==='silent-ok' && 
+read===undefined) pass('K: conformant');
+    else fail('K: deviation — write=' + 
+write + ' read=' + read);
+  } catch(e){ fail('K threw: ' + e.name + 
+' ' + e.message); } } /* ---------- L 
+(fixed): OOB row must THROW on element 
+methods ---------- */ function moduleL(){
+  log('L: op matrix — OOB (RAB shrunk) vs 
+DETACHED (wasm grown)');
+  function row(tag, v){
+    const r = {}; r.byteLength = 
+    v.byteLength;
+    try{ r.read = v[0]; } catch(e){ r.read 
+= 'THREW'; }
+    try{ v[0] = 1; r.write = 'silent'; } 
+catch(e){ r.write = 'THREW'; }
+    try{ r.spread = [...v].length; } 
+catch(e){ r.spread = 'THREW'; }
+    try{ r.iter = v.values().next().done ? 
+'done' : 'VAL'; } catch(e){ r.iter = 
+'THREW'; }
+    try{ r.map = v.map(x=>x).length; } 
+catch(e){ r.map = 'THREW'; }
+    try{ r.slice = v.slice().length; } 
+catch(e){ r.slice = 'THREW'; }
+    try{ r.find = v.find(()=>true); } 
+catch(e){ r.find = 'THREW'; }
+    try{ r.includes = v.includes(1); } 
+catch(e){ r.includes = 'THREW'; }
+    try{ r.fill = v.fill(1).length; } 
+catch(e){ r.fill = 'THREW'; }
+    try{ v.set([1,2]); r.set = 'ok'; } 
+catch(e){ r.set = 'THREW'; }
+    try{ r.subarray = 
+v.subarray(0,4).length; } catch(e){ 
+r.subarray = 'THREW'; }
+    try{ r.construct = new 
+Uint8Array(v).length; } catch(e){ 
+r.construct = 'THREW'; }
+    try{ r.join = v.join(','); } catch(e){ 
+r.join = 'THREW'; }
+    try{ r.reduce = v.reduce((a,b)=>a+b, 
+7); } catch(e){ r.reduce = 'THREW'; }
+    try{ r.desc = 
+Object.getOwnPropertyDescriptor(v, '0'); } 
+catch(e){ r.desc = 'THREW'; }
+    log(tag + ': ' + JSON.stringify(r)); 
+    return r;
+  }
+  const THROW = 
+['spread','iter','map','slice','find','includes','fill','set','join','reduce','construct'];
+  try{
+    const o = row('L OOB ', 
+freshPair().fixed);
+    const d = row('L DETACHED ', 
+freshDetached());
+    let issues = 0;
+    // OOB row: length-0 + silent write + 
+methods THROW + subarray empty
+    if (o.byteLength !== 0) issues++; if 
+    (o.read !== undefined) issues++; if 
+    (o.write !== 'silent') issues++;
+    for (const k of THROW) if (o[k] !== 
+'THREW') issues++;
+    if (o.subarray !== 0) issues++;
+    if (o.desc !== undefined && o.desc !== 
+'THREW') issues++;
+    // DETACHED row: same, except subarray 
+must THROW (discriminator)
+    if (d.byteLength !== 0) issues++;
+    for (const k of THROW) if (d[k] !== 
+'THREW') issues++;
+    if (d.subarray !== 'THREW') issues++;
+    if (issues) fail('L: deviation (' + 
+issues + ' op(s)) — see JSON');
+    else pass('L: OOB and DETACHED both 
+conformant; subarray discriminator = OOB:0 
+/ DETACHED:throw');
+  } catch(e){ fail('L threw: ' + e.name + 
+' ' + e.message); } } /* ---------- M: 
+structuredClone of OOB / detached views 
+----------
+   Spec: serialize length = 0 for 
+OOB/detached. FAIL only if clone length > 
+0. */ async function moduleM(){
+  log('M: structuredClone on OOB and 
+detached views');
+  function probe(tag, view){
+    try{
+      const c = structuredClone(view);
+      if (c && c.byteLength > 0){ fail(tag 
++ ': CLONED LEN=' + c.byteLength + ' — 
+stale-length read'); return; }
+      log(tag + ': clone len=' + (c ? 
+c.byteLength : '?') + ' (no leak)');
+      pass(tag + ': conformant');
+    } catch(e){
+      log(tag + ': threw ' + e.name + ' 
+(non-leak, acceptable)');
+      pass(tag + ': conformant (throw)');
     }
-
-    function loadState() {
-        try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (!raw) {
-                restoreMsg.textContent = '[RESTORE] No saved session found. Starting fresh.';
-                return false;
-            }
-            const data = JSON.parse(raw);
-            if (!data || typeof data !== 'object') {
-                restoreMsg.textContent = '[RESTORE] Invalid saved data. Starting fresh.';
-                return false;
-            }
-
-            state.iterations = data.iterations || 0;
-            state.crashes = data.crashes || 0;
-            state.hangs = data.hangs || 0;
-            state.oob = data.oob || 0;
-            state.uaf = data.uaf || 0;
-            state.found = data.found || 0;
-            state.findings = data.findings || [];
-            state.lastSaveTime = data.lastSaveTime || 0;
-            state.sessionId = data.sessionId || state.sessionId;
-
-            updateStats();
-            updateFindings();
-            setProgress(0);
-
-            const time = state.lastSaveTime ? new Date(state.lastSaveTime).toLocaleTimeString() : 'never';
-            lastSave.textContent = `Last save: ${time}`;
-            restoreMsg.textContent = `[RESTORE] ✅ Session restored! ${state.iterations} iterations, ${state.found} findings.`;
-            restoreMsg.className = 'log-entry success';
-
-            log(`💾 Session restored: ${state.iterations} iterations, ${state.found} findings`, 'restore');
-            log(`📊 Crashes: ${state.crashes}, OOB: ${state.oob}, UAF: ${state.uaf}`, 'restore');
-
-            persistBadge.textContent = '💾 RESTORED';
-            persistBadge.className = 'badge green';
-            return true;
-        } catch (e) {
-            console.warn('Load failed:', e);
-            restoreMsg.textContent = '[RESTORE] Error loading saved session. Starting fresh.';
-            return false;
-        }
+  } probe('M OOB ', freshPair().fixed); 
+  probe('M DETACHED', freshDetached());
+} /* ---------- N: Blob size of OOB / 
+detached views ----------
+   Spec: size 0. FAIL only if size > 0 
+(stale byteLength into blob data). */ 
+function moduleN(){
+  log('N: Blob size from OOB and detached 
+views');
+  function probe(tag, view){
+    try{
+      const b = new Blob([view]); log(tag 
+      + ': Blob size=' + b.size);
+      if (b.size === 0) pass(tag + ': 
+conformant');
+      else fail(tag + ': size=' + b.size + 
+' — stale byteLength into Blob data');
+    } catch(e){
+      log(tag + ': threw ' + e.name); 
+      pass(tag + ': conformant (throw)');
     }
-
-    // Auto-save every 30 seconds
-    setInterval(() => {
-        if (state.iterations > 0 || state.found > 0) {
-            saveState();
-        }
-    }, 30000);
-
-    // ============================================
-    // LOGGING
-    // ============================================
-    function log(message, type = 'info') {
-        const entry = document.createElement('div');
-        entry.className = `log-entry ${type}`;
-        const ts = new Date().toLocaleTimeString();
-        entry.textContent = `[${ts}] ${message}`;
-        logArea.appendChild(entry);
-        logArea.scrollTop = logArea.scrollHeight;
-        logEntries++;
-        logCount.textContent = `${logEntries}`;
-        if (logEntries > 500) {
-            while (logArea.children.length > 50) {
-                logArea.removeChild(logArea.firstChild);
-                logEntries--;
-            }
-        }
+  } probe('N OOB ', freshPair().fixed); 
+  probe('N DETACHED', freshDetached());
+} /* ---------- O: Atomics on OOB / 
+detached views ----------
+   Spec ValidateIntegerTypedArray: 
+TypeError if detached OR out-of-bounds. */ 
+function moduleO(){
+  log('O: Atomics.load on OOB and detached 
+views');
+  const sane = new Uint8Array([1,2,3]); 
+  let saneVal;
+  try{ saneVal = Atomics.load(sane, 0); } 
+catch(e){ saneVal = 'THREW '+e.name; }
+  log('O sanity (in-bounds): ' + saneVal); 
+  function probe(tag, view){
+    try{
+      const r = Atomics.load(view, 0);
+      fail(tag + ': returned ' + r + ' — 
+expected TypeError (OOB read!)');
+    } catch(e){
+      if (e.name === 'TypeError') pass(tag 
++ ': TypeError (conformant)');
+      else fail(tag + ': threw ' + e.name 
++ ' — unexpected');
     }
-
-    function clearLog() {
-        while (logArea.firstChild) logArea.removeChild(logArea.firstChild);
-        logEntries = 0;
-        logCount.textContent = '0';
-        log('Log cleared.', 'info');
+  } probe('O OOB ', freshPair().fixed); 
+  probe('O DETACHED', freshDetached());
+} /* ---------- P: own keys / JSON of OOB 
+view ---------- */ function moduleP(){
+  log('P: Object.keys / JSON.stringify on 
+OOB view');
+  try{
+    const v = freshPair().fixed; const 
+    keys = Object.keys(v);
+    const names = 
+Object.getOwnPropertyNames(v);
+    const json = JSON.stringify(v);
+    const desc = 
+Object.getOwnPropertyDescriptor(v, '0');
+    log('P: keys=' + JSON.stringify(keys) 
++ ' names=' + JSON.stringify(names) +
+        ' json=' + json + ' desc=' + (desc 
+=== undefined ? 'undefined' : 
+JSON.stringify(desc)));
+    if (keys.length===0 && 
+names.length===0 && json==='{}' && 
+desc===undefined)
+      pass('P: conformant — no stale 
+indices');
+    else fail('P: stale index exposure — 
+keys=' + keys.length);
+  } catch(e){ fail('P threw: ' + e.name + 
+' ' + e.message); } } /* ---------- Q 
+(fixed): DataView byteLength THROWS on OOB 
+(unlike TypedArray->0) ---------- */ 
+function moduleQ(){
+  log('Q: DataView on RAB shrunk — 
+byteLength THROWS TypeError (25.3.4.3)');
+  try{
+    const ab = new ArrayBuffer(16, { 
+maxByteLength: 1<<20 });
+    const dv = new DataView(ab, 0, 16); 
+    ab.resize(8); let bl, get, set;
+    try{ bl = dv.byteLength; } catch(e){ 
+bl = 'THREW'; }
+    try{ get = dv.getUint8(0); } catch(e){ 
+get = 'THREW '+e.name; }
+    try{ dv.setUint8(0, 1); set = 'ok'; } 
+catch(e){ set = 'THREW '+e.name; }
+    log('Q: byteLength=' + bl + ' get=' + 
+get + ' set=' + set);
+    if (bl === 'THREW' && 
+String(get).indexOf('THREW TypeError') === 
+0 &&
+        String(set).indexOf('THREW 
+TypeError') === 0)
+      pass('Q: conformant (all three throw 
+TypeError)');
+    else fail('Q: deviation — byteLength=' 
++ bl + ' get=' + get + ' set=' + set);
+  } catch(e){ fail('Q threw: ' + e.name + 
+' ' + e.message); } } /* ---------- R: NEW 
+Uint8Array APIs — freshest source surface 
+----------
+   Source: 
+JSGenericTypedArrayViewPrototype.cpp — 
+every entry guarded by
+   isIntegerIndexedObjectOutOfBounds() -> 
+TypeError. FAIL if returns data. */ 
+function moduleR(){
+  log('R: toHex / toBase64 / setFromHex on 
+OOB and detached views');
+  if (typeof Uint8Array.prototype.toHex 
+!== 'function')
+    return warn('R: toHex/toBase64 not 
+present on this build — SKIP');
+  const sane = new Uint8Array([0xde, 
+0xad]);
+  try{ log('R sanity in-bounds: toHex=' + 
+sane.toHex() + ' toBase64=' + 
+sane.toBase64()); } catch(e){}
+  function probe(tag, view){
+    const out = {};
+    try{ out.toHex = view.toHex(); } 
+catch(e){ out.toHex = 'THREW '+e.name; }
+    try{ out.toBase64 = view.toBase64(); } 
+catch(e){ out.toBase64 = 'THREW '+e.name; 
+}
+    try{ view.setFromHex('00'); 
+out.setFromHex = 'ok'; } catch(e){ 
+out.setFromHex = 'THREW '+e.name; }
+    log(tag + ': ' + JSON.stringify(out)); 
+    let bad = 0;
+    for (const k of 
+['toHex','toBase64','setFromHex'])
+      if (String(out[k]).indexOf('THREW') 
+!== 0) bad++;
+    if (bad) fail(tag + ': ' + bad + ' 
+op(s) returned data instead of 
+TypeError');
+    else pass(tag + ': all guarded 
+(TypeError)');
+  } probe('R OOB ', freshPair().fixed); 
+  probe('R DETACHED', freshDetached());
+} /* ---------- historical: B, C, D, I 
+---------- */ function moduleB(){
+  log('B: Array.shift OOB (historical)'); 
+  const N = 300000; function f(a){ return 
+  a.shift(); } const w = 
+  [1.1,2.2,3.3,4.4];
+  for (let i=0;i<N;i++){ f(w); w.push(i); 
+}
+  const a = [1.1,2.2,3.3,4.4]; for (let 
+  i=0;i<8;i++) f(a); a.length = 0; const r 
+  = f(a); if (r === undefined) pass('B: 
+  fixed');
+  else fail('B: shift returned ' + r + ' — 
+OOB read!'); } function moduleC(){
+  log('C: getter-speculation 
+(historical)');
+  function read(o){ return o.x + o.y; } 
+  const o = { x:1, y:2 }; for (let 
+  i=0;i<300000;i++) read(o);
+  Object.defineProperty(o, 'x', { get(){ 
+return 0x41414141; } });
+  const r = read(o); if (r === 0x41414143) 
+  pass('C: fixed');
+  else fail('C: result=0x' + 
+r.toString(16)); } function moduleD(){
+  log('D: GC/barrier stress, 40 rounds'); 
+  let s = 0; try{
+    for (let round=0; round<40; round++){
+      const roots = []; for (let 
+      i=0;i<4000;i++){
+        const n = { v:i, next:null, 
+arr:[i,i+1,i+2] };
+        n.next = n; roots.push(n); s += 
+n.v;
+      } const tmp = [];
+      for (let j=0;j<6;j++) tmp.push(new 
+Uint8Array(32*1024*1024));
+      for (let i=0;i<roots.length;i+=7){ 
+roots[i].v++; s += roots[i].v; }
+    } pass('D: survived, s=' + s);
+  } catch(e){ fail('D threw: ' + e.name + 
+' ' + e.message); } } function moduleI(){
+  log('I: double-array store + GC stress, 
+60 rounds');
+  let s = 0; try{
+    for (let round=0; round<60; round++){
+      const a = [1.1, 2.2, 3.3]; for (let 
+      i=0;i<4000;i++){
+        if (i === 2000) a[0] = { 
+v:0x41414141 };
+        s += (a[0] && a[0].v) ? a[0].v : 
+a[0];
+      }
+      for (let j=0;j<4;j++) new 
+Uint8Array(16*1024*1024);
+    } pass('I: survived, s=' + s);
+  } catch(e){ fail('I threw: ' + e.name + 
+' ' + e.message); } } /* ---------- S: 
+growable SAB — fixed/auto views + grow 
+race ----------
+   Spec: SAB grow does NOT detach views.
+   - fixed-length view stays VALID (range 
+still covered): byteLength stays 16
+   - auto-length view tracks: byteLength 
+becomes 1048576
+   Race: grow reallocs backing store; 
+stale vector/length in cached view = UAF
+   (CVE-2026-20664 sibling). Mismatch read 
+= torn vector = finding. */ function 
+moduleS(){
+  if (typeof SharedArrayBuffer !== 
+'function')
+    return warn('S: SAB unavailable (needs 
+COOP/COEP headers) — SKIP');
+  log('S: growable SAB — fixed/auto views 
++ grow race');
+  let issues = 0; try{
+    const sab = new SharedArrayBuffer(16, 
+{ maxByteLength: 1<<20 });
+    const fixed = new Uint8Array(sab, 0, 
+16);  // fixed-length view
+    const auto = new Uint8Array(sab);  // 
+auto-length view
+    sab.grow(1<<20);
+    for (let j=0;j<10;j++) new 
+Uint8Array(1<<20); // heap churn
+    let fl, fr, fa, al, aw, ar;
+    try{ fl = fixed.byteLength; } 
+catch(e){ fl = 'THREW'; }
+    try{ fr = fixed[0]; } catch(e){ fr = 
+'THREW '+e.name; }
+    try{ fa = fixed.subarray(0,4).length; 
+} catch(e){ fa = 'THREW '+e.name; }
+    try{ al = auto.byteLength; } catch(e){ 
+al = 'THREW'; }
+    try{ auto[0xffff] = 0x42; aw = 'ok'; } 
+catch(e){ aw = 'THREW '+e.name; }
+    try{ ar = auto[0xffff]; } catch(e){ ar 
+= 'THREW '+e.name; }
+    log('S fixed: byteLength=' + fl + ' 
+read=' + fr + ' subarray=' + fa);
+    log('S auto : byteLength=' + al + ' 
+write=' + aw + ' read=' + ar);
+    if (fl !== 16)  { issues++; fail('S: 
+fixed byteLength=' + fl + ' — expected 16 
+(stays valid after grow)'); }
+    if (fr !== 0)  { issues++; fail('S: 
+fixed read=' + fr + ' — expected 0'); }
+    if (fa !== 16)  { issues++; fail('S: 
+fixed subarray=' + fa + ' — expected 16'); 
+}
+    if (al !== 1048576)  { issues++; 
+fail('S: auto length=' + al + ' — expected 
+1048576 (must track grow)'); }
+    if (aw !== 'ok' || ar !== 0x42) { 
+issues++; fail('S: auto write/read=' + aw 
++ '/' + ar + ' — expected ok/0x42 (stale 
+vector?)'); }
+    if (!issues) pass('S: view semantics 
+after grow correct');
+  } catch(e){ fail('S threw: ' + e.name + 
+' ' + e.message); }
+  /* S-race: worker grows while main 
+reads/writes through auto view */
+  try{
+    const sab = new 
+SharedArrayBuffer(1024, { maxByteLength: 
+1<<20 });
+    const view = new Uint8Array(sab); 
+    const src =
+      'self.onmessage=function(e){var 
+sab=e.data;' +
+      'for(var 
+i=0;i<1000;i++){if(sab.byteLength<1048576){' 
++
+      
+'try{sab.grow(Math.min(sab.byteLength*2,1048576));}catch(err){}}}' 
++
+      'self.postMessage("done");};';
+    const worker = new 
+Worker(URL.createObjectURL(new Blob([src], 
+{ type:'text/javascript' })));
+    worker.postMessage(sab, [sab]); let 
+    mismatches = 0, reads = 0; const t0 = 
+    performance.now();
+    while (performance.now() - t0 < 3000 
+&& view.byteLength < 1048576){
+      const i = (reads++) & 0xffff; 
+      view[i] = i & 0xff;
+      if (view[i] !== (i & 0xff)) 
+mismatches++;
     }
-
-    function setStatus(msg) {
-        statusText.textContent = msg;
+    worker.onmessage = function(){ 
+worker.terminate(); };
+    log('S-race: reads=' + reads + ' 
+mismatches=' + mismatches + ' finalLen=' + 
+view.byteLength);
+    if (mismatches === 0) pass('S-race: no 
+torn reads across grow — vector stays 
+coherent');
+    else fail('S-race: ' + mismatches + ' 
+torn reads — STALE VECTOR/LENGTH — 
+investigate');
+  } catch(e){ fail('S-race threw: ' + 
+e.name + ' ' + e.message); } } /* 
+---------- E: OOM DoS (gated) ---------- 
+*/ function moduleE(){
+  if (!confirm('E will likely crash/kill 
+this tab. Continue?')) return;
+  log('E: allocating + touching pages...', 
+'warn');
+  const blocks = []; try{
+    for (;;){
+      const b = new 
+Uint8Array(64*1024*1024);
+      for (let i=0;i<b.length;i+=4096) 
+b[i] = 1;
+      blocks.push(b);
     }
-
-    function setProgress(pct) {
-        progressFill.style.width = Math.min(Math.max(pct, 0), 100) + '%';
-    }
-
-    function updateStats() {
-        statIter.textContent = state.iterations;
-        statCrashes.textContent = state.crashes;
-        statHangs.textContent = state.hangs;
-        statOOB.textContent = state.oob;
-        statUAF.textContent = state.uaf;
-        statFound.textContent = state.found;
-        if (state.startTime > 0) {
-            const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
-            statRuntime.textContent = elapsed + 's';
-        }
-        const rate = state.iterations > 0 ? ((state.crashes / state.iterations) * 100).toFixed(2) : '0.00';
-        statRate.textContent = rate + '%';
-        iterBadge.textContent = `${state.iterations} iterations`;
-        crashBadge.textContent = `💥 ${state.crashes} crashes`;
-        foundBadge.textContent = `🔍 ${state.found} found`;
-        crashBadge.className = state.crashes > 0 ? 'badge red' : 'badge orange';
-        foundBadge.className = state.found > 0 ? 'badge green' : 'badge yellow';
-        findingsCount.textContent = state.findings.length;
-        findingsStatus.textContent = `✅ UAF: ${state.uaf} | OOB: ${state.oob} | Crash: ${state.crashes}`;
-        if (state.uaf > 0 || state.oob > 0 || state.crashes > 0) {
-            confirmedBadge.textContent = '✅ CONFIRMED';
-            confirmedBadge.style.borderColor = '#44ff88';
-            confirmedBadge.style.color = '#44ff88';
-        }
-    }
-
-    function updateFindings() {
-        if (state.findings.length > 0) {
-            let html = '';
-            state.findings.forEach((f, i) => {
-                let typeClass = 'type-crash';
-                let typeLabel = '💥';
-                if (f.includes('UAF') || f.includes('uaf') || f.includes('deleteShader')) {
-                    typeClass = 'type-uaf';
-                    typeLabel = '🧩';
-                } else if (f.includes('OOB') || f.includes('oob') || f.includes('overflow')) {
-                    typeClass = 'type-oob';
-                    typeLabel = '📦';
-                }
-                html += `<div class="finding-item"><span class="${typeClass}">${typeLabel}</span> ${f}</div>`;
-            });
-            findingsArea.innerHTML = html;
-        } else {
-            findingsArea.innerHTML = 'No findings yet. Run the fuzzer.';
-        }
-        findingsCount.textContent = state.findings.length;
-    }
-
-    // ============================================
-    // WEBGL HELPERS
-    // ============================================
-    function getWebGL() {
-        const canvas = document.createElement('canvas');
-        canvas.width = 256;
-        canvas.height = 256;
-        document.body.appendChild(canvas);
-        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-        return { gl, canvas };
-    }
-
-    // ============================================
-    // FUZZ GENERATORS - TARGETED FOR UAF/OOB/CRASH
-    // ============================================
-    function generateShaderFuzz() {
-        const shaders = [
-            // UAF target: deleteShader after attach
-            'void main() { gl_FragColor = vec4(1.0,0.0,0.0,1.0); }',
-            // OOB target: array overflow
-            'void main() { float arr[10]; arr[100] = 1.0; gl_FragColor = vec4(arr[100],0.0,0.0,1.0); }',
-            // Crash target: division by zero
-            'void main() { float x = 0.0; gl_FragColor = vec4(1.0/x, 0.0, 0.0, 1.0); }',
-            // Crash target: infinite loop
-            'void main() { while(true) { gl_FragColor = vec4(1.0,0.0,0.0,1.0); } }',
-            // UAF target: recursive call
-            'void main() { gl_FragColor = vec4(1.0,0.0,0.0,1.0); main(); }',
-            // OOB target: texture out of bounds
-            'void main() { gl_FragColor = texture2D(texture, vec2(1e10, 1e10)); }',
-            // Crash target: massive array
-            'void main() { float arr[100000]; arr[99999] = 1.0; gl_FragColor = vec4(arr[99999],0.0,0.0,1.0); }',
-            // UAF target: shader delete
-            'void main() { gl_FragColor = vec4(1.0,0.0,0.0,1.0); }',
-            // Crash target: NaN
-            'void main() { gl_FragColor = vec4(0.0/0.0, 0.0, 0.0, 1.0); }',
-            // OOB target: huge texture coordinates
-            'void main() { gl_FragColor = texture2D(texture, vec2(1e20, 1e20)); }',
-        ];
-        return shaders[Math.floor(Math.random() * shaders.length)];
-    }
-
-    function generateBufferFuzz() {
-        const sizes = [
-            0x10000000, 0x20000000, 0x40000000, 0x7FFFFFFF,
-            0xFFFFFFFF, 0x100000000, 0x200000000,
-            Math.pow(2, 32), Math.pow(2, 33), Math.pow(2, 34),
-            Number.MAX_SAFE_INTEGER,
-            Math.floor(Math.random() * 0x7FFFFFFF) + 0x40000000,
-        ];
-        return sizes[Math.floor(Math.random() * sizes.length)];
-    }
-
-    function generateTextureFuzz(gl) {
-        const targets = [gl.TEXTURE_2D, gl.TEXTURE_CUBE_MAP];
-        const formats = [gl.RGBA, gl.RGB, gl.LUMINANCE, gl.ALPHA];
-        const types = [gl.UNSIGNED_BYTE, gl.UNSIGNED_SHORT_4_4_4_4, gl.UNSIGNED_SHORT_5_5_5_1];
-        const sizes = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192];
-        const levels = [0, 1, 2, 3, 4, 5];
-
-        return {
-            target: targets[Math.floor(Math.random() * targets.length)],
-            format: formats[Math.floor(Math.random() * formats.length)],
-            type: types[Math.floor(Math.random() * types.length)],
-            width: sizes[Math.floor(Math.random() * sizes.length)],
-            height: sizes[Math.floor(Math.random() * sizes.length)],
-            level: levels[Math.floor(Math.random() * levels.length)]
-        };
-    }
-
-    // ============================================
-    // FUZZ TEST EXECUTION
-    // ============================================
-    function runFuzzTest() {
-        if (!state.running) return;
-
-        const target = targetSelect.value;
-
-        try {
-            const { gl, canvas } = getWebGL();
-            if (!gl) {
-                log('  ⚠️ WebGL not supported.', 'warning');
-                return;
-            }
-
-            let selectedTarget = target;
-            if (target === 'all') {
-                const targets = ['shader', 'buffer', 'texture', 'webgl'];
-                selectedTarget = targets[Math.floor(Math.random() * targets.length)];
-            }
-
-            let crashDetected = false;
-            let findingType = '';
-
-            switch (selectedTarget) {
-                case 'shader': {
-                    const src = generateShaderFuzz();
-                    const shader = gl.createShader(gl.FRAGMENT_SHADER);
-                    gl.shaderSource(shader, src);
-                    gl.compileShader(shader);
-                    const status = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
-                    const infoLog = gl.getShaderInfoLog(shader);
-
-                    // UAF: delete shader after compiling
-                    const prog = gl.createProgram();
-                    gl.attachShader(prog, shader);
-                    gl.linkProgram(prog);
-
-                    // DELETE SHADER WHILE PROGRAM EXISTS - UAF TRIGGER
-                    gl.deleteShader(shader);
-
-                    // Try to use the program - UAF
-                    gl.useProgram(prog);
-                    const error = gl.getError();
-
-                    if (error === 0x0000) {
-                        // UAF confirmed - program works with deleted shader
-                        state.uaf++;
-                        state.found++;
-                        state.findings.push(`UAF confirmed: deleteShader after attach (Shader)`);
-                        crashDetected = true;
-                        findingType = 'UAF';
-                        log(`  🧩 UAF CONFIRMED!`, 'found');
-                    }
-
-                    if (!status && infoLog && infoLog.length > 10) {
-                        if (infoLog.includes('overflow') || infoLog.includes('out of memory') ||
-                            infoLog.includes('segmentation') || infoLog.includes('fatal') ||
-                            infoLog.includes('error')) {
-                            state.crashes++;
-                            state.found++;
-                            state.findings.push(`Shader crash: ${infoLog.substring(0, 50)}`);
-                            crashDetected = true;
-                            findingType = 'CRASH';
-                            log(`  💥 SHADER CRASH DETECTED!`, 'crash');
-                        }
-                    }
-                    gl.deleteProgram(prog);
-                    break;
-                }
-
-                case 'buffer': {
-                    const size = generateBufferFuzz();
-                    const buffer = gl.createBuffer();
-                    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-                    try {
-                        gl.bufferData(gl.ARRAY_BUFFER, size, gl.STATIC_DRAW);
-                        const error = gl.getError();
-
-                        // OOB: large allocation succeeded
-                        if (error === 0x0000 && size > 0x40000000) {
-                            state.oob++;
-                            state.found++;
-                            state.findings.push(`OOB: ${size} bytes buffer allocated (overflow risk)`);
-                            crashDetected = true;
-                            findingType = 'OOB';
-                            log(`  📦 OOB DETECTED: ${size} bytes`, 'found');
-                        }
-
-                        // Crash: OOM
-                        if (error === 0x0505) {
-                            state.crashes++;
-                            state.found++;
-                            state.findings.push(`OOM crash: ${size} bytes allocation`);
-                            crashDetected = true;
-                            findingType = 'CRASH';
-                            log(`  💥 OOM CRASH: ${size} bytes`, 'crash');
-                        }
-                    } catch (e) {
-                        if (e.message.includes('out of memory')) {
-                            state.crashes++;
-                            state.found++;
-                            state.findings.push(`OOM crash: ${e.message}`);
-                            crashDetected = true;
-                            findingType = 'CRASH';
-                            log(`  💥 OOM CRASH`, 'crash');
-                        }
-                    }
-                    gl.deleteBuffer(buffer);
-                    break;
-                }
-
-                case 'texture': {
-                    const params = generateTextureFuzz(gl);
-                    const texture = gl.createTexture();
-                    gl.bindTexture(gl.TEXTURE_2D, texture);
-                    try {
-                        gl.texImage2D(gl.TEXTURE_2D, params.level, params.format,
-                            params.width, params.height, 0, params.format,
-                            params.type, null);
-                        const error = gl.getError();
-
-                        // OOB: large texture OOB
-                        if (error === 0x0500 || error === 0x0501 || error === 0x0505) {
-                            state.oob++;
-                            state.found++;
-                            state.findings.push(`OOB: Texture ${params.width}x${params.height} error 0x${error.toString(16)}`);
-                            crashDetected = true;
-                            findingType = 'OOB';
-                            log(`  📦 TEXTURE OOB: 0x${error.toString(16)}`, 'found');
-                        }
-                    } catch (e) {
-                        if (e.message.includes('out of memory')) {
-                            state.crashes++;
-                            state.found++;
-                            state.findings.push(`Texture OOM: ${e.message}`);
-                            crashDetected = true;
-                            findingType = 'CRASH';
-                            log(`  💥 TEXTURE OOM CRASH`, 'crash');
-                        }
-                    }
-                    gl.deleteTexture(texture);
-                    break;
-                }
-
-                case 'webgl': {
-                    const states = [
-                        gl.BLEND, gl.CULL_FACE, gl.DEPTH_TEST, gl.SCISSOR_TEST,
-                        gl.STENCIL_TEST, gl.DITHER, gl.POLYGON_OFFSET_FILL,
-                    ];
-                    for (const state of states) {
-                        try {
-                            if (Math.random() > 0.5) {
-                                gl.enable(state);
-                            } else {
-                                gl.disable(state);
-                            }
-                        } catch (e) {
-                            if (e.message.includes('invalid') || e.message.includes('fatal')) {
-                                state.crashes++;
-                                state.found++;
-                                state.findings.push(`WebGL state crash: ${e.message}`);
-                                crashDetected = true;
-                                findingType = 'CRASH';
-                                log(`  💥 WEBGL STATE CRASH!`, 'crash');
-                            }
-                        }
-                    }
-                    break;
-                }
-            }
-
-            state.iterations++;
-
-            if (crashDetected) {
-                // Additional tracking
-                if (findingType === 'UAF') state.uaf++;
-                else if (findingType === 'OOB') state.oob++;
-                else if (findingType === 'CRASH') state.crashes++;
-            }
-
-            updateStats();
-            updateFindings();
-
-            if (state.iterations % 10 === 0) {
-                log(`📊 Iteration ${state.iterations}`, 'fuzz');
-            }
-
-            if (state.iterations % 50 === 0) {
-                log(`📈 Stats: ${state.iterations} iter, ${state.crashes} crashes, ${state.found} found`, 'fuzz');
-                saveState();
-            }
-
-            canvas.remove();
-
-        } catch (e) {
-            if (e.message && e.message.includes('out of memory')) {
-                state.crashes++;
-                state.found++;
-                state.findings.push(`OOM crash: ${e.message}`);
-                log(`  💥 OUT OF MEMORY CRASH!`, 'crash');
-                updateStats();
-                updateFindings();
-            } else {
-                state.crashes++;
-                log(`  💥 UNCAUGHT CRASH: ${e.message}`, 'crash');
-                updateStats();
-            }
-
-            try {
-                document.body.innerHTML = document.body.innerHTML || '';
-            } catch (re) {
-                log('🔥 Browser crashed! Reload page.', 'crash');
-                state.running = false;
-                fuzzStatus.textContent = '💀 CRASHED';
-                fuzzStatus.className = 'badge red';
-                btnStart.disabled = false;
-                saveState();
-                return;
-            }
-        }
-
-        const total = parseInt(iterCount.value) || 1000;
-        const pct = Math.min((state.iterations / total) * 100, 100);
-        setProgress(pct);
-        setStatus(`Fuzzing... ${state.iterations}/${total} (${Math.round(pct)}%) | ${state.found} found`);
-    }
-
-    // ============================================
-    // CONTROL FUNCTIONS
-    // ============================================
-    function startFuzz() {
-        if (state.running) return;
-        state.running = true;
-        state.startTime = Date.now();
-        const total = parseInt(iterCount.value) || 1000;
-
-        log(`🚀 Starting fuzz: ${total} iterations`, 'fuzz');
-        fuzzStatus.textContent = '▶️ RUNNING';
-        fuzzStatus.className = 'badge red pulse';
-        btnStart.disabled = true;
-        btnStop.disabled = false;
-
-        runFuzzTest();
-
-        const delay = parseInt(delayMs.value) || 50;
-        fuzzTimer = setInterval(() => {
-            if (state.iterations >= total) {
-                stopFuzz();
-                log('✅ Fuzzing complete!', 'success');
-                log(`📊 Final: ${state.found} findings, ${state.crashes} crashes`, 'fuzz');
-                log(`🧩 UAF: ${state.uaf} | 📦 OOB: ${state.oob} | 💥 Crashes: ${state.crashes}`, 'found');
-                saveState();
-                return;
-            }
-            runFuzzTest();
-        }, delay);
-    }
-
-    function stopFuzz() {
-        state.running = false;
-        if (fuzzTimer) {
-            clearInterval(fuzzTimer);
-            fuzzTimer = null;
-        }
-        fuzzStatus.textContent = '⏹️ STOPPED';
-        fuzzStatus.className = 'badge';
-        btnStart.disabled = false;
-        btnStop.disabled = true;
-        const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
-        log(`⏹️ Stopped after ${state.iterations} iterations (${elapsed}s)`, 'fuzz');
-        log(`📊 UAF: ${state.uaf} | OOB: ${state.oob} | Crashes: ${state.crashes}`, 'found');
-        setStatus('Stopped.');
-        saveState();
-    }
-
-    function runSingle() {
-        if (state.running) return;
-        log('🔬 Running single test...', 'fuzz');
-        const before = { iterations: state.iterations, crashes: state.crashes, found: state.found, uaf: state.uaf, oob: state.oob };
-        runFuzzTest();
-        const after = { iterations: state.iterations, crashes: state.crashes, found: state.found, uaf: state.uaf, oob: state.oob };
-        const diff = {
-            iterations: after.iterations - before.iterations,
-            crashes: after.crashes - before.crashes,
-            found: after.found - before.found,
-            uaf: after.uaf - before.uaf,
-            oob: after.oob - before.oob,
-        };
-        if (diff.uaf > 0) {
-            log(`🧩 UAF CONFIRMED!`, 'found');
-        } else if (diff.oob > 0) {
-            log(`📦 OOB CONFIRMED!`, 'found');
-        } else if (diff.crashes > 0) {
-            log(`💥 CRASH CONFIRMED!`, 'crash');
-        } else if (diff.found > 0) {
-            log(`✅ Found ${diff.found} vulnerability(ies)!`, 'found');
-        } else {
-            log(`✅ Single test completed (${diff.iterations} iter)`, 'success');
-        }
-        setStatus('Single test complete.');
-        saveState();
-    }
-
-    function runUAF() {
-        if (state.running) return;
-        log('🧩 Running UAF test...', 'fuzz');
-        try {
-            const { gl, canvas } = getWebGL();
-            if (gl) {
-                const vs = gl.createShader(gl.VERTEX_SHADER);
-                gl.shaderSource(vs, 'void main() { gl_Position = vec4(0.0,0.0,0.0,1.0); }');
-                gl.compileShader(vs);
-                const fs = gl.createShader(gl.FRAGMENT_SHADER);
-                gl.shaderSource(fs, 'void main() { gl_FragColor = vec4(1.0,0.0,0.0,1.0); }');
-                gl.compileShader(fs);
-                const prog = gl.createProgram();
-                gl.attachShader(prog, vs);
-                gl.attachShader(prog, fs);
-                gl.linkProgram(prog);
-
-                // UAF TRIGGER: delete shaders while program exists
-                gl.deleteShader(vs);
-                gl.deleteShader(fs);
-
-                // Use program with deleted shaders
-                gl.useProgram(prog);
-                const error = gl.getError();
-
-                if (error === 0x0000) {
-                    state.uaf++;
-                    state.found++;
-                    state.findings.push('UAF CONFIRMED: deleteShader after attach works');
-                    log('  ✅ UAF CONFIRMED!', 'found');
-                    updateStats();
-                    updateFindings();
-                    saveState();
-                } else {
-                    log(`  ⚠️ UAF test: GL error 0x${error.toString(16)}`, 'warning');
-                }
-                canvas.remove();
-            }
-        } catch (e) {
-            log(`  ❌ UAF test error: ${e.message}`, 'error');
-        }
-        setStatus('UAF test complete.');
-    }
-
-    function runOOB() {
-        if (state.running) return;
-        log('📦 Running OOB test...', 'fuzz');
-        try {
-            const { gl, canvas } = getWebGL();
-            if (gl) {
-                // OOB TRIGGER: UNPACK_IMAGE_HEIGHT mismatch
-                gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, 16);
-                const texture = gl.createTexture();
-                gl.bindTexture(gl.TEXTURE_2D, texture);
-                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 256, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-                const data = new Uint8Array(256 * 256 * 4);
-                gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 256, gl.RGBA, gl.UNSIGNED_BYTE, data);
-                const error = gl.getError();
-
-                if (error === 0x0500 || error === 0x0501 || error === 0x0505) {
-                    state.oob++;
-                    state.found++;
-                    state.findings.push(`OOB CONFIRMED: 0x${error.toString(16)} (UNPACK_IMAGE_HEIGHT)`);
-                    log(`  ✅ OOB CONFIRMED: 0x${error.toString(16)}`, 'found');
-                    updateStats();
-                    updateFindings();
-                    saveState();
-                } else if (error === 0x0000) {
-                    state.oob++;
-                    state.found++;
-                    state.findings.push('OOB CONFIRMED: Silent success (memory corrupted)');
-                    log(`  ✅ OOB CONFIRMED (silent)!`, 'found');
-                    updateStats();
-                    updateFindings();
-                    saveState();
-                } else {
-                    log(`  ⚠️ OOB test: GL error 0x${error.toString(16)}`, 'warning');
-                }
-                canvas.remove();
-            }
-        } catch (e) {
-            log(`  ❌ OOB test error: ${e.message}`, 'error');
-        }
-        setStatus('OOB test complete.');
-    }
-
-    function resetAll() {
-        if (state.running) stopFuzz();
-        state.iterations = 0;
-        state.crashes = 0;
-        state.hangs = 0;
-        state.oob = 0;
-        state.uaf = 0;
-        state.found = 0;
-        state.findings = [];
-        state.startTime = 0;
-        updateStats();
-        updateFindings();
-        setProgress(0);
-        findingsArea.innerHTML = 'No findings yet. Run the fuzzer.';
-        setStatus('Reset.');
-        log('🔄 Reset all stats.', 'info');
-        localStorage.removeItem(STORAGE_KEY);
-        persistBadge.textContent = '🗑️ RESET';
-        persistBadge.className = 'badge yellow';
-        lastSave.textContent = 'Last save: never';
-        confirmedBadge.textContent = '⏳ PENDING';
-        confirmedBadge.style.borderColor = '#ff8800';
-        confirmedBadge.style.color = '#ff8800';
-    }
-
-    // ============================================
-    // DEVICE DETECTION
-    // ============================================
-    function detectDevice() {
-        const ua = navigator.userAgent;
-        const isiOS = /iPad|iPhone|iPod/.test(ua);
-        const osVer = /OS (\d+)_(\d+)/.exec(ua);
-
-        if (isiOS && osVer) {
-            const major = parseInt(osVer[1]);
-            if (major >= 17) {
-                log('[DEVICE] ✅ iOS 17+ detected — A15 target.', 'success');
-                log('[PAC] 🔒 PAC is ACTIVE — fuzzing may be limited.', 'pac');
-            } else if (major >= 14) {
-                log('[DEVICE] iOS 14+ detected — A12/A13/A14 target.', 'info');
-            }
-        } else {
-            log('[DEVICE] Running on non-iOS — simulation mode.', 'warning');
-        }
-    }
-
-    // ============================================
-    // EVENT BINDING
-    // ============================================
-    btnStart.addEventListener('click', startFuzz);
-    btnStop.addEventListener('click', stopFuzz);
-    btnSingle.addEventListener('click', runSingle);
-    btnUAF.addEventListener('click', runUAF);
-    btnOOB.addEventListener('click', runOOB);
-    btnSave.addEventListener('click', () => {
-        if (saveState()) {
-            log('💾 Session saved manually.', 'success');
-            setStatus('Session saved.');
-        }
-    });
-    btnClear.addEventListener('click', clearLog);
-
-    document.querySelector('.btn-group .btn:last-child')?.addEventListener('click', () => {
-        if (confirm('Reset all stats and clear saved session?')) resetAll();
-    });
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.target.closest('input')) {
-            e.preventDefault();
-            if (state.running) stopFuzz();
-            else startFuzz();
-        }
-        if (e.key === ' ' && !e.target.closest('input')) {
-            e.preventDefault();
-            runSingle();
-        }
-        if (e.key === 'u' && !e.target.closest('input')) runUAF();
-        if (e.key === 'o' && !e.target.closest('input')) runOOB();
-        if (e.key === 's' && !e.target.closest('input')) {
-            if (saveState()) log('💾 Session saved (keyboard).', 'success');
-        }
-        if (e.key === 'r' && !e.target.closest('input')) {
-            if (confirm('Reset all stats?')) resetAll();
-        }
-    });
-
-    // ============================================
-    // INIT
-    // ============================================
-    function init() {
-        log('🚀 NECRO-FUZZER-CONFIRMED loaded.', 'info');
-        log('📱 Target: A15 · iOS 27 · WebKit', 'info');
-        log('✅ This version confirmed UAF, OOB, and crashes on A15.', 'found');
-        log('💾 Session data saved to localStorage.', 'info');
-        log('💡 ENTER: start/stop, SPACE: single, U: UAF, O: OOB, S: save, R: reset', 'info');
-
-        loadState();
-        detectDevice();
-        updateStats();
-        updateFindings();
-        setStatus('Ready. Press START or ENTER.');
-        btnStop.disabled = true;
-
-        window.addEventListener('beforeunload', () => {
-            if (state.iterations > 0 || state.found > 0) {
-                saveState();
-            }
-        });
-
-        // Show that this version has confirmed findings
-        log('✅ UAF confirmed: deleteShader after attach works', 'found');
-        log('✅ OOB confirmed: UNPACK_IMAGE_HEIGHT mismatch', 'found');
-        log('✅ Crashes confirmed: Shader/Buffer/Texture fuzzing', 'found');
-    }
-
-    init();
-
-    window.NECRO_FUZZER = {
-        start: startFuzz,
-        stop: stopFuzz,
-        single: runSingle,
-        uaf: runUAF,
-        oob: runOOB,
-        save: saveState,
-        reset: resetAll,
-        stats: () => ({ iterations: state.iterations, crashes: state.crashes, found: state.found, oob: state.oob, uaf: state.uaf })
-    };
-
-    console.log('[NECRO-FUZZER-CONFIRMED] Loaded with UAF/OOB/CRASH findings.');
-    console.log('[NECRO-FUZZER-CONFIRMED] Commands: start(), stop(), single(), uaf(), oob(), save(), reset(), stats()');
-
-})();
-</script>
-</body>
+  } catch(e){ warn('E: OOM after ' + 
+blocks.length + ' blocks (' + 
+(blocks.length*64) + ' MB) — survived'); } 
+} /* ---------- F: seeded template fuzzer 
+---------- */ let fuzzState = null; 
+function mulberry32(seed){
+  return function(){
+    seed |= 0; seed = seed + 0x6D2B79F5 | 
+0;
+    let t = Math.imul(seed ^ seed >>> 15, 
+1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) 
+^ t;
+    return ((t ^ t >>> 14) >>> 0) / 
+4294967296;
+  }; } function makeProgram(rnd){
+  const a = Math.floor(rnd()*4096), b = 
+Math.floor(rnd()*1024)+1;
+  const templates = [
+    '(function(){var a=[1.1,2.2];for(var 
+i=0;i<8000;i++){a.push(i);a.shift();}a.length=0;return 
+a.shift();})()',
+    '(function(){var t=new Uint8Array(' + 
+b + ');for(var i=0;i<4000;i++){t[i%' + b + 
+']=i;var u=new 
+Uint8Array(t.buffer);u[0]=i;}return 
+t[0];})()',
+    '(function(){var o={x:' + a + ',y:' + 
+b + '};var s=0;for(var 
+i=0;i<4000;i++){if(i===2000)Object.defineProperty(o,"x",{get:function(){return 
+' + a + '+1;}});s+=o.x+o.y;}return 
+s;})()',
+    '(function(){var ab=new 
+ArrayBuffer(64,{maxByteLength:1048576});var 
+v=new Uint8Array(ab,0,64);ab.resize(' + b 
++ ');var s=0;for(var 
+i=0;i<2000;i++){s+=v[i];v[i%8]=i;}return 
+s;})()',
+    '(function(){var m=new 
+WebAssembly.Memory({initial:1,maximum:100});var 
+v=new Uint8Array(m.buffer);m.grow(5);var 
+s=0;for(var 
+i=0;i<2000;i++){try{s+=v[i];}catch(e){}}try{v.set([1,2,3]);}catch(e){}return 
+s;})()'
+  ];
+  return 
+templates[Math.floor(rnd()*templates.length)]; 
+} function startFuzz(){
+  if (fuzzState) return;
+  const seed = 
+Math.floor(Math.random()*0xffffffff);
+  const rnd = mulberry32(seed); let n = 0;
+  log('F: fuzzer started, seed=0x' + 
+seed.toString(16) + ' — tab death mid-run 
+= finding.', 'warn');
+  fuzzState = setInterval(() => {
+    for (let k=0;k<50;k++){ try{ 
+eval(makeProgram(rnd)); } catch(e){} n++; 
+}
+    if (n % 5000 === 0) log('F: ' + n + ' 
+programs');
+  }, 50); } function stopFuzz(){
+  if (fuzzState){ 
+clearInterval(fuzzState); fuzzState = 
+null; log('F: stopped'); } } /* ---------- 
+Campaign ---------- */ async function 
+campaign(){
+  passCount = failCount = infoCount = 
+warnCount = 0;
+  log('========== CAMPAIGN START 
+==========', 'warn');
+  await moduleA2(); await sleep(120); 
+  moduleG();  await sleep(120); moduleJ();  
+  await sleep(120); moduleK();  await 
+  sleep(120); moduleL();  await 
+  sleep(120); await moduleM();  await 
+  sleep(120); moduleN();  await 
+  sleep(120); moduleO();  await 
+  sleep(120); moduleP();  await 
+  sleep(120); moduleQ();  await 
+  sleep(120); moduleR();  await 
+  sleep(120); moduleB();  await 
+  sleep(120); moduleC();  await 
+  sleep(120); moduleD();  await 
+  sleep(300); moduleI();  await 
+  sleep(300);
+  log('========== CAMPAIGN END: ' + 
+passCount + ' PASS / ' + failCount + ' 
+FAIL / ' +
+      warnCount + ' WARN / ' + infoCount + 
+' INFO ==========', 'warn');
+  if (failCount === 0) log('All 
+conformant. Any FAIL = real deviation — 
+keep this log.');
+  else log('FAILURES — investigate flagged 
+lines.', 'bad'); } window.onerror = 
+function(msg, src, line){ log('onerror: ' 
++ msg + ' @' + line, 'bad'); }; /* 
+---------- banner ---------- */ 
+(function(){
+  const ua = navigator.userAgent;
+  const safVer = 
+(ua.match(/Version\/([\d.]+)/) || 
+['','?'])[1];
+  const uaOs = (ua.match(/OS (\d+[_\d]*)/) 
+|| ['','?'])[1].replace(/_/g,'.');
+  log('Harness ready. ' + DEVICE_OS + ' 
+(Safari ' + safVer + '; UA token frozen at 
+' + uaOs +
+      ' — UA OS token is a lie since iOS 
+26, Version/ is real)');
+  log('Preflight: RAB=' + (typeof 
+ArrayBuffer.prototype.resize==='function') 
++
+      ' structuredClone=' + (typeof 
+structuredClone==='function') +
+      ' Atomics=' + (typeof 
+Atomics!=='undefined') +
+      ' wasm=' + (typeof 
+WebAssembly!=='undefined') +
+      ' toHex=' + (typeof 
+Uint8Array.prototype.toHex==='function')); 
+})(); </script> </body>
 </html>
